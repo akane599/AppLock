@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +60,7 @@ import kotlin.math.abs
 fun SettingsScreen(
     navController: NavController
 ) {
+    val resources = LocalResources.current
     val context = LocalContext.current
     val appLockRepository = remember { AppLockRepository(context) }
 
@@ -71,13 +73,13 @@ fun SettingsScreen(
         if (isGranted) {
             Toast.makeText(
                 context,
-                context.getString(R.string.settings_screen_shizuku_permission_granted),
+                resources.getString(R.string.settings_screen_shizuku_permission_granted),
                 Toast.LENGTH_SHORT
             ).show()
         } else {
             Toast.makeText(
                 context,
-                context.getString(R.string.settings_screen_shizuku_permission_required_desc),
+                resources.getString(R.string.settings_screen_shizuku_permission_required_desc),
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -164,7 +166,7 @@ fun SettingsScreen(
                     putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
                     putExtra(
                         DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                        context.getString(R.string.main_screen_device_admin_explanation)
+                        resources.getString(R.string.main_screen_device_admin_explanation)
                     )
                 }
                 context.startActivity(intent)
@@ -393,7 +395,7 @@ fun SettingsScreen(
                                 } else {
                                     Toast.makeText(
                                         context,
-                                        context.getString(R.string.settings_screen_export_logs_error),
+                                        resources.getString(R.string.settings_screen_export_logs_error),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -417,7 +419,7 @@ fun SettingsScreen(
                                 } else {
                                     Toast.makeText(
                                         context,
-                                        context.getString(R.string.settings_screen_export_logs_error),
+                                        resources.getString(R.string.settings_screen_export_logs_error),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -756,6 +758,7 @@ fun BackendSelectionCard(
     context: Context,
     shizukuPermissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
 ) {
+    val resources = LocalResources.current
     var selectedBackend by remember { mutableStateOf(appLockRepository.getBackendImplementation()) }
 
     Column {
@@ -781,7 +784,7 @@ fun BackendSelectionCard(
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                context.getString(R.string.settings_screen_shizuku_not_running_toast),
+                                                resources.getString(R.string.settings_screen_shizuku_not_running_toast),
                                                 Toast.LENGTH_LONG
                                             ).show()
                                         }
@@ -803,7 +806,7 @@ fun BackendSelectionCard(
                                         context.startActivity(intent)
                                         Toast.makeText(
                                             context,
-                                            context.getString(R.string.settings_screen_usage_permission_toast),
+                                            resources.getString(R.string.settings_screen_usage_permission_toast),
                                             Toast.LENGTH_LONG
                                         ).show()
                                         return@BackendSelectionItem
@@ -1012,6 +1015,7 @@ fun AccessibilityDialog(
 
 @Composable
 fun LinksSection() {
+    val resources = LocalResources.current
     val context = LocalContext.current
 
     Column {

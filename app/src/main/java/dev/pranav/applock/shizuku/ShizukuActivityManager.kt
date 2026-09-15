@@ -1,24 +1,21 @@
 package dev.pranav.applock.shizuku
 
 import android.app.ActivityManager
-import android.app.IActivityTaskManager
-import android.app.TaskInfo
-import android.content.*
-import android.content.Context.RECEIVER_EXPORTED
+import android.app.TaskStackListener
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Handler
+import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import android.view.Display
-import android.view.IWindowManager
-import dev.pranav.applock.core.broadcast.DeviceUnlockReceiver
-import dev.pranav.applock.core.utils.LogUtils
 import dev.pranav.applock.data.repository.AppLockRepository
 import dev.pranav.applock.data.repository.BackendImplementation
 import dev.pranav.applock.services.AppLockManager
 import dev.pranav.applock.services.isDeviceLocked
-import org.lsposed.hiddenapibypass.HiddenApiBypass
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
@@ -26,225 +23,149 @@ import rikka.shizuku.SystemServiceHelper
 class ShizukuActivityManager(
     private val context: Context,
     private val appLockRepository: AppLockRepository,
-    private val onForegroundAppChanged: (String, String, Long) -> Unit
+    private val onAvailabilityChanged: (Boolean) -> Unit,
+    private val onDismissLock: () -> Unit,
+    private val onForegroundAppChanged: (String, String) -> Unit
 ) {
-    private val TAG = "ShizukuActivityManager"
-    private var lastForegroundApp = ""
-    private var deviceUnlockReceiver: DeviceUnlockReceiver? = null
-    private var shouldLockAppsOnReturn = false
-
     private val handler = Handler(Looper.getMainLooper())
-    private val checkForegroundRunnable = object : Runnable {
-        override fun run() {
-            try {
-                checkForegroundApp()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                LogUtils.e(TAG, "Unhandled exception in foreground monitor", e)
-            } finally {
-                // Schedule itself again after 500ms regardless of failure
-                handler.postDelayed(this, 500)
+    private var running = false
+    private var receiverRegistered = false
+    private var taskService: Any? = null
+    private var listenerRegistered = false
+    private var available: Boolean? = null
+    private var protectionEnabled: Boolean? = null
+
+    private val taskListener = object : TaskStackListener() {
+        override fun onTaskStackChanged() = requestCheck()
+        override fun onTaskMovedToFront(taskInfo: ActivityManager.RunningTaskInfo) = requestCheck()
+    }
+
+    private fun requestCheck() {
+        handler.post {
+            if (running) {
+                handler.removeCallbacks(monitor)
+                handler.post(monitor)
             }
         }
     }
 
-    private val homeButtonReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            when (intent?.action) {
-                Intent.ACTION_CLOSE_SYSTEM_DIALOGS -> {
-                    val currentTop = topActivity
-                    if (currentTop != null && lastForegroundApp == currentTop.packageName && currentTop.className == "com.android.launcher3.uioverrides.QuickstepLauncher") {
-                        AppLockManager.clearTemporarilyUnlockedApp()
-                    }
-                }
-
-                Intent.ACTION_SCREEN_OFF -> {
-                    AppLockManager.clearTemporarilyUnlockedApp()
-                    shouldLockAppsOnReturn = true
-                    lastForegroundApp = ""
-                }
-
-                Intent.ACTION_USER_PRESENT -> {
-                    shouldLockAppsOnReturn = true
-                }
+    private val monitor = object : Runnable {
+        override fun run() {
+            if (!running) return
+            try {
+                checkForegroundApp()
+            } catch (e: Exception) {
+                if (available != false) Log.e(TAG, "Cannot query foreground tasks", e)
+                taskService = null
+                listenerRegistered = false
+                reportAvailability(false)
+            } finally {
+                if (running) handler.postDelayed(this, if (available == false) 1_000L else 250L)
             }
+        }
+    }
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                AppLockManager.sessions.resetUnlocks()
+                onDismissLock()
+            }
+            requestCheck()
         }
     }
 
     fun start(): Boolean {
-        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_DENIED) {
-            Log.e(TAG, "Shizuku is not available")
-            return false
-        }
-
-        try {
-            registerEventReceivers()
-            startForegroundAppMonitoring()
-            return true
+        if (running) return true
+        return try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
+            context.registerReceiver(screenReceiver, filter)
+            receiverRegistered = true
+            running = true
+            handler.post(monitor)
+            true
         } catch (e: Exception) {
-            e.printStackTrace()
-            return false
+            Log.e(TAG, "Cannot start foreground monitor", e)
+            stop()
+            false
         }
-    }
-
-    private fun registerEventReceivers() {
-        val homeFilter = IntentFilter().apply {
-            addAction(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_USER_PRESENT)
-        }
-
-        context.registerReceiver(homeButtonReceiver, homeFilter, RECEIVER_EXPORTED)
-
-        val unlockFilter = IntentFilter().apply {
-            addAction(Intent.ACTION_USER_PRESENT)
-            addAction(Intent.ACTION_SCREEN_OFF)
-        }
-        deviceUnlockReceiver = DeviceUnlockReceiver {
-            shouldLockAppsOnReturn = true
-        }
-        context.registerReceiver(deviceUnlockReceiver, unlockFilter)
-    }
-
-    val windowManager: IWindowManager
-        get() = SystemServiceHelper.getSystemService("window")
-            .let(::ShizukuBinderWrapper)
-            .let(IWindowManager.Stub::asInterface)
-
-    private fun startForegroundAppMonitoring() {
-        handler.removeCallbacks(checkForegroundRunnable)
-        handler.post(checkForegroundRunnable)
-        Log.d(TAG, "Foreground app monitoring started")
     }
 
     private fun checkForegroundApp() {
-        if (!appLockRepository.isProtectEnabled()) return
         if (appLockRepository.getBackendImplementation() != BackendImplementation.SHIZUKU) {
-            handler.removeCallbacks(checkForegroundRunnable)
+            stop()
+            (context as? android.app.Service)?.stopSelf()
             return
         }
-
-        if (!Shizuku.pingBinder()) {
-            LogUtils.e(TAG, "Shizuku binder lost during foreground monitoring")
+        if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
+            taskService = null
+            listenerRegistered = false
+            reportAvailability(false)
             return
         }
-
+        val service = taskService ?: createTaskService().also { taskService = it }
+        if (!listenerRegistered) {
+            try {
+                service.javaClass.methods.first { it.name == "registerTaskStackListener" }
+                    .apply { isAccessible = true }.invoke(service, taskListener)
+                listenerRegistered = true
+            } catch (e: Exception) {
+                // Polling still works on systems that do not permit the optional listener.
+                Log.w(TAG, "Task listener unavailable; using polling", e)
+                listenerRegistered = true
+            }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val tasks = TaskQueryCompat.query(service) as List<ActivityManager.RunningTaskInfo>
+        reportAvailability(true)
+        if (!appLockRepository.isProtectEnabled()) {
+            onDismissLock()
+            return
+        }
         if (context.isDeviceLocked()) return
+        // getTasks is ordered by foreground task. Iterating every visible task oscillates
+        // between apps in split screen and can overwrite a just-authenticated session.
+        val activity = tasks.firstOrNull()?.topActivity ?: return
+        onForegroundAppChanged(activity.packageName, activity.className)
+    }
 
-        getTasksWrapper().filterVisible().forEach {
-            val activity = it.topActivity!!
-            val packageName = activity.packageName
-            val className = activity.className
+    private fun createTaskService(): Any {
+        val modern = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val serviceName = if (modern) "activity_task" else "activity"
+        val interfaceName = if (modern) "IActivityTaskManager" else "IActivityManager"
+        val binder = ShizukuBinderWrapper(SystemServiceHelper.getSystemService(serviceName))
+        return Class.forName("android.app.$interfaceName\$Stub")
+            .getMethod("asInterface", IBinder::class.java).invoke(null, binder)!!
+    }
 
-            // Skip our own app and known recents classes
-            if (packageName == context.packageName) return
-
-            // Skip if app is temporarily unlocked
-            if (packageName == lastForegroundApp && AppLockManager.isAppTemporarilyUnlocked(
-                    packageName
-                )
-            ) return
-
-            // If we should lock apps on return (home button pressed, device locked, etc.)
-            // then trigger app lock for any new foreground app
-            if (shouldLockAppsOnReturn && packageName != lastForegroundApp) {
-                LogUtils.d(TAG, "Should lock apps on return - triggering for: $packageName")
-                shouldLockAppsOnReturn = false // Reset the flag
-
-                val timeMillis = System.currentTimeMillis()
-                lastForegroundApp = packageName
-                onForegroundAppChanged(packageName, className, timeMillis)
-                return
-            }
-
-            // Normal app switching - only trigger if current app has changed
-            if (packageName != lastForegroundApp) {
-                val triggerExclusions = appLockRepository.getTriggerExcludedApps()
-
-                // Check if previous app was in trigger exclusions
-                if (lastForegroundApp in triggerExclusions) {
-                    LogUtils.d(
-                        TAG,
-                        "Previous app $lastForegroundApp is excluded, skipping app lock for $packageName"
-                    )
-                    lastForegroundApp = packageName
-                    return
-                }
-            }
-
-            val timeMillis = System.currentTimeMillis()
-            LogUtils.d(TAG, "Foreground app changed to: $packageName, class: $className")
-
-            lastForegroundApp = packageName
-            onForegroundAppChanged(packageName, className, timeMillis)
-        }
+    private fun reportAvailability(value: Boolean) {
+        val enabled = appLockRepository.isProtectEnabled()
+        if (available == value && protectionEnabled == enabled) return
+        available = value
+        protectionEnabled = enabled
+        if (!value) AppLockManager.sessions.resetUnlocks()
+        onAvailabilityChanged(value)
     }
 
     fun stop() {
-        homeButtonReceiver.let { receiver ->
-            try {
-                context.unregisterReceiver(receiver)
-                Log.d(TAG, "Home button receiver unregistered")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error unregistering home button receiver", e)
+        running = false
+        handler.removeCallbacksAndMessages(null)
+        if (receiverRegistered) {
+            context.unregisterReceiver(screenReceiver)
+            receiverRegistered = false
+        }
+        taskService?.let { service ->
+            if (listenerRegistered) runCatching {
+                service.javaClass.methods.first { it.name == "unregisterTaskStackListener" }
+                    .apply { isAccessible = true }.invoke(service, taskListener)
             }
         }
-
-        deviceUnlockReceiver?.let { receiver ->
-            try {
-                context.unregisterReceiver(receiver)
-                deviceUnlockReceiver = null
-                Log.d(TAG, "Device unlock receiver unregistered")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error unregistering device unlock receiver", e)
-            }
-        }
-
-        handler.removeCallbacks(checkForegroundRunnable)
-        Log.d(TAG, "ShizukuActivityManager stopped")
+        listenerRegistered = false
+        taskService = null
     }
-}
 
-val topActivity: ComponentName?
-    get() = getTasksWrapper().firstOrNull()?.topActivity
-
-private val activityTaskManager: IActivityTaskManager by lazy {
-    SystemServiceHelper.getSystemService("activity_task")
-        .let(::ShizukuBinderWrapper)
-        .let(IActivityTaskManager.Stub::asInterface)
-}
-
-private fun getTasksWrapper(): List<ActivityManager.RunningTaskInfo> = when {
-    Build.VERSION.SDK_INT < 31 -> runCatching { activityTaskManager.getTasks(8) }.getOrNull()
-        .orEmpty()
-
-    else -> runCatching { activityTaskManager.getTasks(8, false, false, Display.INVALID_DISPLAY) }
-        .getOrNull()
-        .orEmpty()
-}
-
-private fun List<ActivityManager.RunningTaskInfo>.filterVisible(): List<ActivityManager.RunningTaskInfo> {
-    return filter {
-        it.isRunning && it.isVisible
-    }
-}
-
-fun TaskInfo.isFreeform(): Boolean {
-    try {
-        return HiddenApiBypass.invoke(TaskInfo::class.java, this, "isFreeform") as Boolean
-    } catch (e: Throwable) {
-        e.printStackTrace()
-        return false
-    }
-}
-
-fun TaskInfo.isFocused(): Boolean {
-    try {
-        return HiddenApiBypass.getInstanceFields(TaskInfo::class.java)
-            .firstOrNull { it.name == "isFocused" }!!
-            .getBoolean(this)
-    } catch (e: Throwable) {
-        e.printStackTrace()
-        return false
-    }
+    companion object { private const val TAG = "ShizukuActivityManager" }
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
@@ -69,6 +70,7 @@ fun SetPasswordScreen(
     var showInvalidOldPasswordError by remember { mutableStateOf(false) }
     val minLength = 4
 
+    val resources = LocalResources.current
     val context = LocalContext.current
     val activity = LocalActivity.current as? ComponentActivity
     val appLockRepository = remember {
@@ -138,8 +140,8 @@ fun SetPasswordScreen(
         if (fragmentActivity == null) return
         val executor = ContextCompat.getMainExecutor(context)
         val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(context.getString(R.string.authenticate_to_reset_pin_title))
-            .setSubtitle(context.getString(R.string.use_device_pin_pattern_password_subtitle))
+            .setTitle(resources.getString(R.string.authenticate_to_reset_pin_title))
+            .setSubtitle(resources.getString(R.string.use_device_pin_pattern_password_subtitle))
             .setAllowedAuthenticators(
                 BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
             )
@@ -352,7 +354,7 @@ fun SetPasswordScreen(
                                                 appLockRepository?.setPassword(passwordState)
                                                 Toast.makeText(
                                                     context,
-                                                    context.getString(R.string.password_set_successfully_toast),
+                                                    resources.getString(R.string.password_set_successfully_toast),
                                                     Toast.LENGTH_SHORT
                                                 ).show()
 
@@ -600,7 +602,7 @@ fun SetPasswordScreen(
                                                 appLockRepository?.setPassword(passwordState)
                                                 Toast.makeText(
                                                     context,
-                                                    context.getString(R.string.password_set_successfully_toast),
+                                                    resources.getString(R.string.password_set_successfully_toast),
                                                     Toast.LENGTH_SHORT
                                                 ).show()
 

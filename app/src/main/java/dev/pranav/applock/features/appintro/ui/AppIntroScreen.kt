@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -143,6 +144,7 @@ fun MethodSelectionCard(
 @SuppressLint("BatteryLife")
 @Composable
 fun AppIntroScreen(navController: NavController) {
+    val resources = LocalResources.current
     val context = LocalContext.current
     val activity = context as? ComponentActivity
 
@@ -162,7 +164,7 @@ fun AppIntroScreen(navController: NavController) {
                 } else {
                     Toast.makeText(
                         context,
-                        context.getString(R.string.notification_permission_required_desc),
+                        resources.getString(R.string.notification_permission_required_desc),
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -174,13 +176,13 @@ fun AppIntroScreen(navController: NavController) {
             if (isGranted) {
                 Toast.makeText(
                     context,
-                    context.getString(R.string.shizuku_permission_granted),
+                    resources.getString(R.string.shizuku_permission_granted),
                     Toast.LENGTH_SHORT
                 ).show()
             } else {
                 Toast.makeText(
                     context,
-                    context.getString(R.string.shizuku_permission_required_desc),
+                    resources.getString(R.string.shizuku_permission_required_desc),
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -233,7 +235,7 @@ fun AppIntroScreen(navController: NavController) {
                     intent.data = "package:${context.packageName}".toUri()
                     Toast.makeText(
                         context,
-                        context.getString(R.string.allow_display_over_other_apps),
+                        resources.getString(R.string.allow_display_over_other_apps),
                         Toast.LENGTH_LONG
                     ).show()
                     context.startActivity(intent)
@@ -480,7 +482,7 @@ fun AppIntroScreen(navController: NavController) {
             if (!allPermissionsGranted) {
                 Toast.makeText(
                     context,
-                    context.getString(R.string.all_permissions_required),
+                    resources.getString(R.string.all_permissions_required),
                     Toast.LENGTH_SHORT
                 ).show()
             }
