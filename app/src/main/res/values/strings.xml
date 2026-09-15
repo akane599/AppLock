@@ -316,4 +316,7 @@ Make sure you have Shizuku installed and enabled via ADB. Tap \'Next\' to grant 
         If AppLock has helped you, please consider a small donation—any amount means the world to me and keeps this project alive.
         Thank you for believing in my work!
     </string>
+    <string name="shizuku_protecting">Protecting your apps with Shizuku</string>
+    <string name="shizuku_unavailable">Protection unavailable. Check Shizuku and display-over-other-apps permission.</string>
+    <string name="shizuku_paused">App protection is turned off</string>
 </resources>

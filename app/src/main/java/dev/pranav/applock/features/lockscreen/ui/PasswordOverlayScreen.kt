@@ -1,8 +1,6 @@
 package dev.pranav.applock.features.lockscreen.ui
 
-import dev.pranav.applock.features.lockscreen.ui.AlphanumericPasswordOverlayScreen
 import android.content.Context
-import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -44,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.lifecycleScope
 import dev.pranav.applock.R
 import dev.pranav.applock.core.ui.shapes
 import dev.pranav.applock.core.utils.appLockRepository
@@ -55,296 +52,182 @@ import dev.pranav.applock.services.AppLockManager
 import dev.pranav.applock.ui.icons.Backspace
 import dev.pranav.applock.ui.icons.Fingerprint
 import dev.pranav.applock.ui.theme.AppLockTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import java.util.concurrent.Executor
 
-class PasswordOverlayActivity: FragmentActivity() {
-    private lateinit var executor: Executor
+open class PasswordOverlayActivity : FragmentActivity() {
     private lateinit var biometricPrompt: BiometricPrompt
-    private lateinit var promptInfo: BiometricPrompt.PromptInfo
     private lateinit var appLockRepository: AppLockRepository
-    internal var lockedPackageNameFromIntent: String? = null
-    internal var triggeringPackageNameFromIntent: String? = null
-
-    private var isBiometricPromptShowingLocal = false
-    private var appName: String = ""
-
-    private val TAG = "PasswordOverlayActivity"
+    private var lockedPackage = ""
+    private var triggerPackage: String? = null
+    private var token = 0L
+    private var promptShowing = false
+    private var autoPromptAttempted = false
+    private var completed = false
+    private var appName = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        lockedPackageNameFromIntent = intent.getStringExtra("locked_package")
-        triggeringPackageNameFromIntent = intent.getStringExtra("triggering_package")
-        if (lockedPackageNameFromIntent == null) {
-            Log.e(TAG, "No locked_package name provided in intent. Finishing.")
-            finishAffinity()
+        lockedPackage = intent.getStringExtra("locked_package").orEmpty()
+        triggerPackage = intent.getStringExtra("triggering_package")
+        token = intent.getLongExtra("lock_token", 0L)
+        if (!AppLockManager.claimActivityLock(token, lockedPackage)) {
+            exitToHome()
             return
         }
-
-        enableEdgeToEdge()
-
         appLockRepository = applicationContext.appLockRepository()
-
-        onBackPressedDispatcher.addCallback(
-            this,
-            object: androidx.activity.OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    // Prevent back navigation to maintain security
-                    Log.d(TAG, "Back pressed ignored on AppLock overlay")
+        autoPromptAttempted = savedInstanceState?.getBoolean("auto_prompt_attempted") ?: false
+        enableEdgeToEdge()
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) window.setHideOverlayWindows(true)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) setRecentsScreenshotEnabled(false)
+        if (appLockRepository.shouldUseMaxBrightness()) {
+            window.attributes = window.attributes.apply {
+                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+            }
+        }
+        appName = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(lockedPackage, 0)).toString()
+        }.getOrDefault(getString(R.string.default_app_name))
+        biometricPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    promptShowing = false
+                    // Cancellation leaves the opaque password screen in place.
+                }
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    promptShowing = false
+                    completeAuthentication()
                 }
             })
-
-        setupWindow()
-        loadAppNameAndSetupUI()
-    }
-
-    override fun onPostCreate(savedInstanceState: Bundle?) {
-        super.onPostCreate(savedInstanceState)
-        setupBiometricPromptInternal()
-    }
-
-    override fun onPostResume() {
-        super.onPostResume()
-        setupBiometricPromptInternal()
-        if (appLockRepository.isBiometricAuthEnabled()) {
-            triggerBiometricPrompt()
-        }
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        Log.d(TAG, "Configuration changed - orientation: ${newConfig.orientation}")
-    }
-
-    private fun setupWindow() {
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
-                    WindowManager.LayoutParams.FLAG_SECURE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            //setShowWhenLocked(true)
-            setTurnScreenOn(true)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            window.setHideOverlayWindows(true)
-        }
-
-
-        val layoutParams = window.attributes
-        layoutParams.type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        layoutParams.width = WindowManager.LayoutParams.MATCH_PARENT
-        layoutParams.height = WindowManager.LayoutParams.MATCH_PARENT
-
-        if (appLockRepository.shouldUseMaxBrightness()) {
-            layoutParams.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
-        }
-        window.attributes = layoutParams
-    }
-
-    private fun loadAppNameAndSetupUI() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                appName = packageManager.getApplicationLabel(
-                    packageManager.getApplicationInfo(lockedPackageNameFromIntent!!, 0)
-                ).toString()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading app name: ${e.message}")
-                appName = getString(R.string.default_app_name)
-            }
-        }
-        setupUI()
-    }
-
-    private fun setupUI() {
-        val onPinAttemptCallback = { pin: String ->
-            val isValid = appLockRepository.validatePassword(pin)
-            if (isValid) {
-                lockedPackageNameFromIntent?.let { pkgName ->
-                    AppLockManager.unlockApp(pkgName)
-
-                    finishAfterTransition()
-                }
-            }
-            isValid
-        }
-
-        val onPatternAttemptCallback = { pattern: String ->
-            val isValid = appLockRepository.validatePattern(pattern)
-            if (isValid) {
-                lockedPackageNameFromIntent?.let { pkgName ->
-                    AppLockManager.unlockApp(pkgName)
-
-                    finishAfterTransition()
-                }
-            }
-            isValid
-        }
-
         setContent {
             AppLockTheme {
-                Scaffold(
-                    modifier = Modifier.fillMaxSize(),
-                    contentColor = MaterialTheme.colorScheme.primaryContainer
-                ) { innerPadding ->
-                    val lockType = appLockRepository.getLockType()
-                    when (lockType) {
-                        PreferencesRepository.LOCK_TYPE_PATTERN -> {
-                            PatternLockScreen(
-                                modifier = Modifier.padding(innerPadding),
-                                fromMainActivity = false,
-                                lockedAppName = appName,
-                                triggeringPackageName = triggeringPackageNameFromIntent,
-                                onPatternAttempt = onPatternAttemptCallback
-                            )
-                        }
-
-                        PreferencesRepository.LOCK_TYPE_PASSWORD -> {
-                            AlphanumericPasswordOverlayScreen(
-                                modifier = Modifier.padding(innerPadding),
-                                showBiometricButton = appLockRepository.isBiometricAuthEnabled(),
-                                fromMainActivity = false,
-                                onBiometricAuth = { triggerBiometricPrompt() },
-                                onAuthSuccess = {},
-                                lockedAppName = appName,
-                                triggeringPackageName = triggeringPackageNameFromIntent,
-                                onPasswordAttempt = onPinAttemptCallback,
-                                showCloseButton = true,
-                                onClose = { finish() }
-                            )
-                        }
-
-                        else -> {
-                            PinPasswordOverlayScreen(
-                                modifier = Modifier.padding(innerPadding),
-                                showBiometricButton = appLockRepository.isBiometricAuthEnabled(),
-                                fromMainActivity = false,
-                                onBiometricAuth = { triggerBiometricPrompt() },
-                                onAuthSuccess = {},
-                                lockedAppName = appName,
-                                triggeringPackageName = triggeringPackageNameFromIntent,
-                                onPinAttempt = onPinAttemptCallback,
-                                showCloseButton = true,
-                                onClose = { finish() }
-                            )
-
-                            BackHandler { }
-                        }
+                Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
+                    BackHandler { exitToHome() }
+                    when (appLockRepository.getLockType()) {
+                        PreferencesRepository.LOCK_TYPE_PATTERN -> PatternLockScreen(
+                            modifier = Modifier.padding(padding),
+                            lockedAppName = appName,
+                            triggeringPackageName = triggerPackage,
+                            showCloseButton = true,
+                            onClose = { exitToHome() },
+                            onBiometricAuth = { triggerBiometricPrompt() },
+                            onPatternAttempt = { value ->
+                                appLockRepository.validatePattern(value).also { valid ->
+                                    if (valid) completeAuthentication()
+                                }
+                            }
+                        )
+                        PreferencesRepository.LOCK_TYPE_PASSWORD -> AlphanumericPasswordOverlayScreen(
+                            modifier = Modifier.padding(padding),
+                            lockedAppName = appName,
+                            triggeringPackageName = triggerPackage,
+                            showCloseButton = true,
+                            onClose = { exitToHome() },
+                            showBiometricButton = appLockRepository.isBiometricAuthEnabled(),
+                            onBiometricAuth = { triggerBiometricPrompt() },
+                            onAuthSuccess = {},
+                            onPasswordAttempt = { value ->
+                                appLockRepository.validatePassword(value).also { valid ->
+                                    if (valid) completeAuthentication()
+                                }
+                            }
+                        )
+                        else -> PinPasswordOverlayScreen(
+                            modifier = Modifier.padding(padding),
+                            lockedAppName = appName,
+                            triggeringPackageName = triggerPackage,
+                            showCloseButton = true,
+                            onClose = { exitToHome() },
+                            showBiometricButton = appLockRepository.isBiometricAuthEnabled(),
+                            onBiometricAuth = { triggerBiometricPrompt() },
+                            onAuthSuccess = {},
+                            onPinAttempt = { value ->
+                                appLockRepository.validatePassword(value).also { valid ->
+                                    if (valid) completeAuthentication()
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
     }
 
-    private fun setupBiometricPromptInternal() {
-        executor = ContextCompat.getMainExecutor(this)
-        biometricPrompt =
-            BiometricPrompt(this@PasswordOverlayActivity, executor, authenticationCallbackInternal)
+    override fun onPostResume() {
+        super.onPostResume()
+        if (isFinishing) return
+        if (!AppLockManager.claimActivityLock(token, lockedPackage)) {
+            exitToHome()
+            return
+        }
+        if (!autoPromptAttempted) {
+            autoPromptAttempted = true
+            triggerBiometricPrompt()
+        }
+    }
 
-        val appNameForPrompt = appName.ifEmpty { getString(R.string.this_app) }
-        promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(getString(R.string.unlock_app_title, appNameForPrompt))
+    private fun triggerBiometricPrompt() {
+        if (completed || promptShowing || !appLockRepository.isBiometricAuthEnabled()) return
+        val prompt = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(getString(R.string.unlock_app_title, appName))
             .setSubtitle(getString(R.string.confirm_biometric_subtitle))
             .setNegativeButtonText(getString(R.string.use_pin_button))
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                        BiometricManager.Authenticators.BIOMETRIC_STRONG
-            )
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
             .setConfirmationRequired(false)
             .build()
-    }
-
-    private val authenticationCallbackInternal =
-        object: BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                super.onAuthenticationError(errorCode, errString)
-                isBiometricPromptShowingLocal = false
-                AppLockManager.reportBiometricAuthFinished()
-                Log.w(TAG, "Authentication error: $errString ($errorCode)")
-            }
-
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                super.onAuthenticationSucceeded(result)
-                isBiometricPromptShowingLocal = false
-                lockedPackageNameFromIntent?.let { pkgName ->
-                    AppLockManager.temporarilyUnlockAppWithBiometrics(pkgName)
-                    // Fix: Do NOT relaunch the app. Just finish the overlay to reveal the underlying activity.
-                    // This preserves the navigation stack/state of the locked app.
-                }
-                finishAfterTransition()
-            }
-        }
-
-    override fun onResume() {
-        super.onResume()
-        AppLockManager.isLockScreenShown.set(true) // Set to true when activity is visible
-        lifecycleScope.launch {
-            applyUserPreferences()
+        promptShowing = true
+        try {
+            biometricPrompt.authenticate(prompt)
+        } catch (e: Exception) {
+            promptShowing = false
+            Log.e("PasswordOverlay", "Cannot start biometrics; keeping password screen", e)
         }
     }
 
-    private fun applyUserPreferences() {
-        if (appLockRepository.shouldUseMaxBrightness()) {
-            window.attributes = window.attributes.apply {
-                screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
-            }
-            if (window.decorView.isAttachedToWindow) {
-                windowManager.updateViewLayout(window.decorView, window.attributes)
-            }
+    private fun completeAuthentication() {
+        if (completed) return
+        if (!AppLockManager.sessions.authenticate(token)) {
+            exitToHome()
+            return
         }
+        completed = true
+        biometricPrompt.cancelAuthentication()
+        finish()
     }
 
-    fun triggerBiometricPrompt() {
-        if (appLockRepository.isBiometricAuthEnabled()) {
-            AppLockManager.reportBiometricAuthStarted()
-            isBiometricPromptShowingLocal = true
-            try {
-                biometricPrompt.authenticate(promptInfo)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error calling biometricPrompt.authenticate: ${e.message}", e)
-                isBiometricPromptShowingLocal = false
-                AppLockManager.reportBiometricAuthFinished()
-            }
-        }
+    private fun exitToHome() {
+        startActivity(android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_HOME)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        })
+        finish()
     }
 
-    override fun onPause() {
-        super.onPause()
-        if (!isChangingConfigurations && !isBiometricPromptShowingLocal) {
-            Log.d(TAG, "Overlay paused; lock screen hidden but app remains locked")
-            AppLockManager.isLockScreenShown.set(false)
-        }
-    }
-
-    override fun onResumeFragments() {
-        super.onResumeFragments()
-        AppLockManager.isLockScreenShown.set(true)
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("auto_prompt_attempted", autoPromptAttempted)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onStop() {
         super.onStop()
-        if (isChangingConfigurations) {
-            return
-        }
-        Log.d(TAG, "Overlay stopped; finishing lock overlay")
-        AppLockManager.isLockScreenShown.set(false)
-        if (!isFinishing && !isDestroyed) {
-            finish()
-        }
+        if (!isChangingConfigurations) finish()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        AppLockManager.isLockScreenShown.set(false)
-        AppLockManager.reportBiometricAuthFinished()
-        Log.d(TAG, "PasswordOverlayActivity onDestroy for $lockedPackageNameFromIntent")
+        // Never let an older activity clear ownership of a newer prompt.
+        if (!isChangingConfigurations) AppLockManager.sessions.release(token)
+    }
+
+    companion object {
+        fun createIntent(context: Context, packageName: String, trigger: String, token: Long) =
+            android.content.Intent(context, PasswordOverlayActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                    android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION
+                putExtra("locked_package", packageName)
+                putExtra("triggering_package", trigger)
+                putExtra("lock_token", token)
+            }
     }
 }
 

@@ -53,6 +53,7 @@ android {
 }
 
 dependencies {
+    testImplementation(libs.junit)
     implementation(project(":appintro"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

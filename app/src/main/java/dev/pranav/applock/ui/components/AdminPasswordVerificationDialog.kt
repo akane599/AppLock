@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,6 +38,7 @@ fun AdminPasswordVerificationDialog(
     onDismiss: () -> Unit,
     validatePassword: (String) -> Boolean
 ) {
+    val resources = LocalResources.current
     val context = LocalContext.current
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
@@ -99,11 +101,11 @@ fun AdminPasswordVerificationDialog(
                 Button(
                     onClick = {
                         if (password.isEmpty()) {
-                            error = context.getString(R.string.password_empty_error)
+                            error = resources.getString(R.string.password_empty_error)
                         } else if (validatePassword(password)) {
                             onPasswordVerified()
                         } else {
-                            error = context.getString(R.string.incorrect_password_error)
+                            error = resources.getString(R.string.incorrect_password_error)
                         }
                     }
                 ) {

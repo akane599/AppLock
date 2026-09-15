@@ -48,16 +48,25 @@ class AppLockRepository(private val context: Context) {
         lockedAppsRepository.isAppAntiUninstall(packageName)
 
     fun getPassword(): String? = preferencesRepository.getPassword()
-    fun setPassword(password: String) = preferencesRepository.setPassword(password)
+    fun setPassword(password: String) {
+        preferencesRepository.setPassword(password)
+        AppLockManager.sessions.resetUnlocks()
+    }
     fun validatePassword(inputPassword: String): Boolean =
         preferencesRepository.validatePassword(inputPassword)
 
     fun getPattern(): String? = preferencesRepository.getPattern()
-    fun setPattern(pattern: String) = preferencesRepository.setPattern(pattern)
+    fun setPattern(pattern: String) {
+        preferencesRepository.setPattern(pattern)
+        AppLockManager.sessions.resetUnlocks()
+    }
     fun validatePattern(inputPattern: String): Boolean =
         preferencesRepository.validatePattern(inputPattern)
 
-    fun setLockType(lockType: String) = preferencesRepository.setLockType(lockType)
+    fun setLockType(lockType: String) {
+        preferencesRepository.setLockType(lockType)
+        AppLockManager.sessions.resetUnlocks()
+    }
     fun getLockType(): String = preferencesRepository.getLockType()
 
     fun setBiometricAuthEnabled(enabled: Boolean) =
@@ -76,7 +85,10 @@ class AppLockRepository(private val context: Context) {
         preferencesRepository.setAntiUninstallEnabled(enabled)
 
     fun isAntiUninstallEnabled(): Boolean = preferencesRepository.isAntiUninstallEnabled()
-    fun setProtectEnabled(enabled: Boolean) = preferencesRepository.setProtectEnabled(enabled)
+    fun setProtectEnabled(enabled: Boolean) {
+        preferencesRepository.setProtectEnabled(enabled)
+        AppLockManager.sessions.resetUnlocks()
+    }
     fun isProtectEnabled(): Boolean = preferencesRepository.isProtectEnabled()
 
     fun setUnlockTimeDuration(minutes: Int) = preferencesRepository.setUnlockTimeDuration(minutes)
@@ -84,8 +96,10 @@ class AppLockRepository(private val context: Context) {
     fun setAutoUnlockEnabled(enabled: Boolean) = preferencesRepository.setAutoUnlockEnabled(enabled)
     fun isAutoUnlockEnabled(): Boolean = preferencesRepository.isAutoUnlockEnabled()
 
-    fun setBackendImplementation(backend: BackendImplementation) =
+    fun setBackendImplementation(backend: BackendImplementation) {
         preferencesRepository.setBackendImplementation(backend)
+        AppLockManager.sessions.resetUnlocks()
+    }
 
     fun getBackendImplementation(): BackendImplementation =
         preferencesRepository.getBackendImplementation()

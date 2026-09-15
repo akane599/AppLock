@@ -1,7 +1,6 @@
 package dev.pranav.applock.core.utils
 
-import android.util.Base64
-import dev.pranav.applock.core.utils.SecurityUtils.MAX_PASSWORD_LENGTH
+import java.util.Base64
 import java.security.MessageDigest
 import java.security.SecureRandom
 
@@ -46,8 +45,8 @@ object SecurityUtils {
         md.update(salt)
         val hash = md.digest(sanitizedPassword.toByteArray(Charsets.UTF_8))
 
-        val saltBase64 = Base64.encodeToString(salt, Base64.NO_WRAP)
-        val hashBase64 = Base64.encodeToString(hash, Base64.NO_WRAP)
+        val saltBase64 = Base64.getEncoder().encodeToString(salt)
+        val hashBase64 = Base64.getEncoder().encodeToString(hash)
 
         return "$saltBase64:$hashBase64"
     }
@@ -57,9 +56,8 @@ object SecurityUtils {
         if (parts.size != 2) return false
 
         return try {
-            Base64.decode(parts[0], Base64.NO_WRAP)
-            Base64.decode(parts[1], Base64.NO_WRAP)
-            true
+            Base64.getDecoder().decode(parts[0]).size == SALT_LENGTH &&
+                Base64.getDecoder().decode(parts[1]).size == 32
         } catch (_: Exception) {
             false
         }
@@ -71,10 +69,10 @@ object SecurityUtils {
     fun verifyPassword(inputPassword: String, storedSaltedHash: String): Boolean {
         return try {
             val parts = storedSaltedHash.split(":")
-            if (parts.size != 2) return false
+            if (!isSaltedHash(storedSaltedHash)) return false
 
-            val salt = Base64.decode(parts[0], Base64.NO_WRAP)
-            val expectedHash = Base64.decode(parts[1], Base64.NO_WRAP)
+            val salt = Base64.getDecoder().decode(parts[0])
+            val expectedHash = Base64.getDecoder().decode(parts[1])
 
             val sanitizedInput = sanitizePassword(inputPassword)
 

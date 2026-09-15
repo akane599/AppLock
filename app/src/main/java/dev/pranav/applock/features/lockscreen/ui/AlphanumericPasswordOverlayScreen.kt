@@ -243,11 +243,8 @@ private fun performVerification(
         }
     } else {
         onPasswordAttempt?.let { attempt ->
-            if (attempt(passwordState)) {
-                onAuthSuccess()
-            } else {
-                onIncorrect()
-            }
+            // Like PIN and pattern callbacks, the attempt handler owns successful completion.
+            if (!attempt(passwordState)) onIncorrect()
         }
     }
 }
