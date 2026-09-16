@@ -146,7 +146,6 @@ class ShizukuActivityManager(
         if (available == value && protectionEnabled == enabled) return
         available = value
         protectionEnabled = enabled
-        if (!value) AppLockManager.sessions.resetUnlocks()
         onAvailabilityChanged(value)
     }
 

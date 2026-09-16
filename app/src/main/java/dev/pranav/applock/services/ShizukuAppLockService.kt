@@ -9,14 +9,21 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.provider.Settings
 import android.os.IBinder
 import android.util.Log
+import android.view.inputmethod.InputMethodManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.pranav.applock.R
 import dev.pranav.applock.core.broadcast.DeviceAdmin
 import dev.pranav.applock.core.utils.LogUtils
+import dev.pranav.applock.core.utils.hasUsagePermission
 import dev.pranav.applock.core.utils.appLockRepository
+import dev.pranav.applock.data.manager.BackendFallbackPolicy
 import dev.pranav.applock.data.repository.AppLockRepository
 import dev.pranav.applock.data.repository.AppLockRepository.Companion.shouldStartService
 import dev.pranav.applock.data.repository.BackendImplementation
@@ -26,6 +33,38 @@ class ShizukuAppLockService : Service() {
     private val appLockRepository: AppLockRepository by lazy { applicationContext.appLockRepository() }
     private lateinit var lockPresenter: ServiceLockPresenter
     private var shizukuActivityManager: ShizukuActivityManager? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val usageTracker by lazy { UsageForegroundTracker(this) }
+    private var shizukuAvailable = false
+    private var monitorStarted = false
+    private var nextRoutingCheck = 0L
+    private var usageRetryAfter = 0L
+    private var notificationText = R.string.shizuku_unavailable
+
+    private val fallbackMonitor = object : Runnable {
+        override fun run() {
+            if (!isServiceRunning) return
+            if (appLockRepository.getBackendImplementation() != BackendImplementation.SHIZUKU) {
+                stopSelf()
+                return
+            }
+            if (SystemClock.elapsedRealtime() >= nextRoutingCheck) {
+                reconcileBackend()
+                nextRoutingCheck = SystemClock.elapsedRealtime() + 1_000L
+            }
+            if (appLockRepository.getEffectiveBackend() == BackendImplementation.USAGE_STATS &&
+                appLockRepository.isProtectEnabled() && !isDeviceLocked()) {
+                try {
+                    usageTracker.current()?.let { (pkg, activity) -> handleForeground(pkg, activity) }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Usage Stats fallback unavailable", e)
+                    usageRetryAfter = SystemClock.elapsedRealtime() + 5_000L
+                    reconcileBackend()
+                }
+            }
+            if (isServiceRunning) handler.postDelayed(this, 250L)
+        }
+    }
 
     private val notificationManager: NotificationManager by lazy {
         getSystemService(NotificationManager::class.java)
@@ -59,18 +98,13 @@ class ShizukuAppLockService : Service() {
             return START_NOT_STICKY
         }
 
-        appLockRepository.setActiveBackend(BackendImplementation.SHIZUKU)
         AppLockManager.stopAllOtherServices(this, this::class.java)
 
         setupShizukuActivityManager()
 
-        val shizukuStarted = shizukuActivityManager?.start() == true
-        if (!shizukuStarted) {
-            Log.e(TAG, "Shizuku failed to start. Stopping service.")
-            isServiceRunning = false
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        monitorStarted = shizukuActivityManager?.start() == true
+        // Keep the supervisor alive even if Shizuku cannot start, so fallback and recovery work.
+        handler.post(fallbackMonitor)
 
         return START_STICKY
     }
@@ -78,14 +112,19 @@ class ShizukuAppLockService : Service() {
     override fun onDestroy() {
         LogUtils.d(TAG, "ShizukuAppLockService killed.")
 
+        isServiceRunning = false
+        handler.removeCallbacksAndMessages(null)
         shizukuActivityManager?.stop()
         lockPresenter.destroy()
-
-        if (isServiceRunning) {
-            LogUtils.d(TAG, "Service destroyed unexpectedly. Automatic fallback is disabled.")
+        // An already-connected accessibility service can continue while Android restarts us.
+        if (appLockRepository.getBackendImplementation() == BackendImplementation.SHIZUKU) {
+            appLockRepository.setShizukuRuntimeBackend(
+                if (appLockRepository.isProtectEnabled() && AppLockAccessibilityService.isConnected) {
+                    BackendImplementation.ACCESSIBILITY
+                } else null
+            )
+            AppLockAccessibilityService.refreshBackend()
         }
-
-        isServiceRunning = false
         notificationManager.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
@@ -108,11 +147,6 @@ class ShizukuAppLockService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    override fun onUnbind(intent: Intent?): Boolean {
-        LogUtils.d(TAG, "ShizukuAppLockService unbound. Automatic fallback is disabled.")
-        return super.onUnbind(intent)
-    }
 
     private fun startForegroundService() {
         createNotificationChannel()
@@ -149,14 +183,10 @@ class ShizukuAppLockService : Service() {
         notificationManager.createNotificationChannel(serviceChannel)
     }
 
-    private fun createNotification(available: Boolean = false): Notification {
+    private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AppLock")
-            .setContentText(getString(when {
-                !appLockRepository.isProtectEnabled() -> R.string.shizuku_paused
-                available -> R.string.shizuku_protecting
-                else -> R.string.shizuku_unavailable
-            }))
+            .setContentText(getString(notificationText))
             .setOnlyAlertOnce(true)
             .setSmallIcon(R.drawable.baseline_shield_24)
             .setPriority(NotificationCompat.PRIORITY_MIN)
@@ -169,37 +199,89 @@ class ShizukuAppLockService : Service() {
             this,
             appLockRepository,
             onAvailabilityChanged = { available ->
-                notificationManager.notify(NOTIFICATION_ID, createNotification(available))
+                shizukuAvailable = available
+                reconcileBackend()
             },
             onDismissLock = { lockPresenter.dismiss() }
         ) { packageName, className ->
-            if (className in AppLockConstants.KNOWN_RECENTS_CLASSES) {
-                lockPresenter.onForegroundChanged("system.recents")
-                AppLockManager.sessions.observeForeground("system.recents", emptySet())
-                return@ShizukuActivityManager
+            if (appLockRepository.getEffectiveBackend() == BackendImplementation.SHIZUKU) {
+                handleForeground(packageName, className)
             }
-            if (packageName == this.packageName) {
-                if (!AppLockManager.sessions.isShowing) AppLockManager.sessions.observeForeground(packageName, emptySet())
-                return@ShizukuActivityManager
+        }
+    }
+
+    private fun reconcileBackend() {
+        if (appLockRepository.getBackendImplementation() != BackendImplementation.SHIZUKU) {
+            stopSelf()
+            return
+        }
+        if (!monitorStarted) monitorStarted = shizukuActivityManager?.start() == true
+        val enabled = appLockRepository.isProtectEnabled()
+        val desired = BackendFallbackPolicy.choose(
+            protectionEnabled = enabled,
+            shizukuAvailable = shizukuAvailable,
+            accessibilityConnected = AppLockAccessibilityService.isConnected,
+            usageAccessGranted = runCatching { hasUsagePermission() }.getOrDefault(false) &&
+                SystemClock.elapsedRealtime() >= usageRetryAfter,
+            overlayGranted = Settings.canDrawOverlays(this)
+        )
+        val previous = appLockRepository.getEffectiveBackend()
+        val active = BackendFallbackPolicy.transition(previous, desired, AppLockManager.sessions.isShowing)
+        if (active != previous) {
+            // A real protection gap invalidates grants, but must not cancel an open challenge.
+            if (active == null || previous == null) AppLockManager.sessions.clearGrants()
+            appLockRepository.setShizukuRuntimeBackend(active)
+            if (!AppLockManager.sessions.isShowing) {
+                lockPresenter.dismiss()
+                AppLockAccessibilityService.refreshBackend()
             }
-            if (packageName in AppLockConstants.EXCLUDED_APPS) {
-                return@ShizukuActivityManager
-            }
-            lockPresenter.onForegroundChanged(packageName)
-            val trigger = AppLockManager.sessions.observeForeground(
-                packageName, appLockRepository.getTriggerExcludedApps()
-            )
-            if (AppLockManager.sessions.needsAuthentication(
-                    packageName, appLockRepository.getLockedApps(), appLockRepository.getUnlockTimeDuration()
-                )) {
-                try {
-                    if (lockPresenter.show(packageName, trigger)) {
-                        notificationManager.notify(NOTIFICATION_ID, createNotification(true))
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to show authentication", e)
-                    notificationManager.notify(NOTIFICATION_ID, createNotification(false))
-                }
+            LogUtils.d(TAG, "Runtime backend changed: $previous -> $active (preferred: Shizuku)")
+        }
+        if (!enabled) {
+            lockPresenter.dismiss()
+            AppLockAccessibilityService.refreshBackend()
+        }
+        val text = when {
+            !enabled -> R.string.shizuku_paused
+            active != desired && AppLockManager.sessions.isShowing -> R.string.shizuku_switch_pending
+            active == BackendImplementation.ACCESSIBILITY -> R.string.shizuku_fallback_accessibility
+            active == BackendImplementation.USAGE_STATS -> R.string.shizuku_fallback_usage
+            active == BackendImplementation.SHIZUKU -> R.string.shizuku_protecting
+            else -> R.string.shizuku_no_fallback
+        }
+        if (text != notificationText) {
+            notificationText = text
+            notificationManager.notify(NOTIFICATION_ID, createNotification())
+        }
+    }
+
+    private fun handleForeground(packageName: String, className: String) {
+        if (className in AppLockConstants.KNOWN_RECENTS_CLASSES) {
+            lockPresenter.onForegroundChanged("system.recents")
+            AppLockManager.sessions.observeForeground("system.recents", emptySet())
+            return
+        }
+        if (packageName == this.packageName) {
+            if (!AppLockManager.sessions.isShowing) AppLockManager.sessions.observeForeground(packageName, emptySet())
+            return
+        }
+        if (packageName in AppLockConstants.EXCLUDED_APPS) return
+        if (getSystemService(InputMethodManager::class.java).enabledInputMethodList.any {
+                it.packageName == packageName
+            }) return
+        lockPresenter.onForegroundChanged(packageName)
+        val trigger = AppLockManager.sessions.observeForeground(
+            packageName, appLockRepository.getTriggerExcludedApps()
+        )
+        if (AppLockManager.sessions.needsAuthentication(
+                packageName, appLockRepository.getLockedApps(), appLockRepository.getUnlockTimeDuration()
+            )) {
+            try {
+                lockPresenter.show(packageName, trigger)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show authentication", e)
+                reconcileBackend()
+                notificationManager.notify(NOTIFICATION_ID, createNotification())
             }
         }
     }

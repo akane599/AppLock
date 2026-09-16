@@ -1,6 +1,7 @@
 package dev.pranav.applock.data.repository
 
 import android.content.Context
+import dev.pranav.applock.data.manager.BackendFallbackPolicy
 import dev.pranav.applock.data.manager.BackendServiceManager
 import dev.pranav.applock.services.AppLockManager
 
@@ -13,6 +14,13 @@ class AppLockRepository(private val context: Context) {
     private val preferencesRepository = PreferencesRepository(context)
     private val lockedAppsRepository = LockedAppsRepository(context)
     private val backendServiceManager = BackendServiceManager()
+
+    fun getEffectiveBackend(): BackendImplementation? =
+        BackendFallbackPolicy.effective(getBackendImplementation(), shizukuRuntimeBackend)
+
+    fun setShizukuRuntimeBackend(backend: BackendImplementation?) {
+        shizukuRuntimeBackend = backend
+    }
 
     fun getLockedApps(): Set<String> = lockedAppsRepository.getLockedApps()
     fun addLockedApp(packageName: String) {
@@ -98,6 +106,7 @@ class AppLockRepository(private val context: Context) {
 
     fun setBackendImplementation(backend: BackendImplementation) {
         preferencesRepository.setBackendImplementation(backend)
+        shizukuRuntimeBackend = null
         AppLockManager.sessions.resetUnlocks()
     }
 
@@ -116,6 +125,10 @@ class AppLockRepository(private val context: Context) {
         backendServiceManager.setActiveBackend(backend)
 
     companion object {
+        // Repositories in Settings and ViewModels must observe the same runtime routing.
+        @Volatile
+        private var shizukuRuntimeBackend: BackendImplementation? = null
+
         private const val TAG = "AppLockRepository"
 
         fun shouldStartService(repository: AppLockRepository, serviceClass: Class<*>): Boolean {

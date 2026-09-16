@@ -915,11 +915,12 @@ private fun getBackendDisplayName(backend: BackendImplementation): String {
     }
 }
 
+@Composable
 private fun getBackendDescription(backend: BackendImplementation): String {
     return when (backend) {
         BackendImplementation.ACCESSIBILITY -> "Standard method that works on most devices"
         BackendImplementation.USAGE_STATS -> "Experimental method using app usage statistics"
-        BackendImplementation.SHIZUKU -> "Advanced method using Shizuku and internal APIs"
+        BackendImplementation.SHIZUKU -> stringResource(R.string.settings_screen_backend_implementation_shizuku_desc)
     }
 }
 

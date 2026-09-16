@@ -132,8 +132,12 @@ Every contribution matters.
 ## Protection limits
 
 AppLock detects foreground apps and places an authentication window over them. Keep the
-selected backend running and its permissions granted. Shizuku protection pauses while
-Shizuku is unavailable and resumes when the connection and permission return.
+selected backend running and its permissions granted. If Shizuku becomes unavailable,
+AppLock automatically uses a connected Accessibility service, then Usage Stats if usage
+access and display-over-other-apps permission are granted. It returns to Shizuku after
+a successful task query, waiting for any open authentication prompt to finish. Without
+a usable backend, the service notification reports that protection is unavailable.
+See [fallback setup and checks](docs/shizuku-fallback.md).
 
 Locking an app does not hide that app's saved thumbnail in Android Recents. AppLock secures
 its own windows; target-app preview privacy requires support from the target app or system.

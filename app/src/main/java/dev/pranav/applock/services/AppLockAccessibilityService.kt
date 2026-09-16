@@ -39,6 +39,19 @@ class AppLockAccessibilityService : AccessibilityService() {
 
         @Volatile
         var isServiceRunning = false
+
+        @Volatile
+        private var connectedService: AppLockAccessibilityService? = null
+        val isConnected: Boolean get() = connectedService != null
+
+        fun refreshBackend() {
+            connectedService?.let { service ->
+                service.mainHandler.post {
+                    if (service.shouldAccessibilityHandleLocking()) service.checkActiveWindow()
+                    else service.lockPresenter?.dismiss()
+                }
+            }
+        }
     }
 
     private val screenStateReceiver = object: android.content.BroadcastReceiver() {
@@ -91,6 +104,7 @@ class AppLockAccessibilityService : AccessibilityService() {
                 flags = flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             }
 
+            connectedService = this
             Log.d(TAG, "Accessibility service connected")
             if (shouldAccessibilityHandleLocking()) {
                 appLockRepository.setActiveBackend(BackendImplementation.ACCESSIBILITY)
@@ -148,7 +162,7 @@ class AppLockAccessibilityService : AccessibilityService() {
     }
 
     private fun checkActiveWindow() {
-        if (!appLockRepository.isProtectEnabled() || isDeviceLocked()) return
+        if (!appLockRepository.isProtectEnabled() || !shouldAccessibilityHandleLocking() || isDeviceLocked()) return
         val packageName = rootInActiveWindow?.packageName?.toString() ?: return
         if (packageName != this.packageName && packageName !in keyboardPackages && packageName !in EXCLUDED_APPS) {
             processPackageLocking(packageName)
@@ -166,7 +180,7 @@ class AppLockAccessibilityService : AccessibilityService() {
     }
 
     private fun shouldAccessibilityHandleLocking(): Boolean =
-        appLockRepository.getBackendImplementation() == BackendImplementation.ACCESSIBILITY
+        appLockRepository.getEffectiveBackend() == BackendImplementation.ACCESSIBILITY
 
     private fun showLockScreenOverlay(packageName: String, triggeringPackage: String) {
         try {
@@ -329,6 +343,7 @@ class AppLockAccessibilityService : AccessibilityService() {
         return try {
             Log.d(TAG, "Accessibility service unbound")
             isServiceRunning = false
+            if (connectedService === this) connectedService = null
 
             if (Shizuku.pingBinder() && appLockRepository.isAntiUninstallEnabled()) {
                 enableAccessibilityServiceWithShizuku(ComponentName(packageName, javaClass.name))
@@ -345,6 +360,7 @@ class AppLockAccessibilityService : AccessibilityService() {
         try {
             super.onDestroy()
             isServiceRunning = false
+            if (connectedService === this) connectedService = null
             LogUtils.d(TAG, "Accessibility service destroyed")
 
             lockPresenter?.destroy()

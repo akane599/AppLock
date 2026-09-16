@@ -5,8 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.app.admin.DevicePolicyManager
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -40,14 +38,12 @@ class UsageLockService: Service() {
     }
 
     private val appLockRepository: AppLockRepository by lazy { applicationContext.appLockRepository() }
-    private val usageStatsManager: UsageStatsManager by lazy { getSystemService()!! }
+    private val foregroundTracker by lazy { UsageForegroundTracker(this) }
     private val notificationManager: NotificationManager by lazy { getSystemService()!! }
 
     private val lockPresenter by lazy { ServiceLockPresenter(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var pauseMonitoring = false
-    private var lastQueryTime = 0L
-    private var foregroundApp: Pair<String, String>? = null
     private val monitor = object : Runnable {
         override fun run() {
             if (!isServiceRunning) return
@@ -143,7 +139,7 @@ class UsageLockService: Service() {
                 return
             }
             if (pauseMonitoring || isDeviceLocked()) return
-            val foreground = getCurrentForegroundAppPackage() ?: return
+            val foreground = foregroundTracker.current() ?: return
             if (foreground.second in AppLockConstants.KNOWN_RECENTS_CLASSES) {
                 lockPresenter.onForegroundChanged("system.recents")
                 AppLockManager.sessions.observeForeground("system.recents", emptySet())
@@ -176,30 +172,6 @@ class UsageLockService: Service() {
         return packageName == this.packageName ||
                 packageName in keyboardPackages ||
                 packageName in AppLockConstants.EXCLUDED_APPS
-    }
-
-    private fun getCurrentForegroundAppPackage(): Pair<String, String>? {
-        val now = System.currentTimeMillis()
-        if (lastQueryTime == 0L || lastQueryTime > now) {
-            lastQueryTime = now - 10_000L
-            foregroundApp = null
-        }
-        val events = usageStatsManager.queryEvents(lastQueryTime, now) ?: return null
-        val event = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            when (event.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    foregroundApp = event.packageName?.let { it to (event.className ?: "") }
-                }
-                UsageEvents.Event.ACTIVITY_PAUSED -> {
-                    if (foregroundApp?.first == event.packageName &&
-                        foregroundApp?.second == event.className) foregroundApp = null
-                }
-            }
-        }
-        lastQueryTime = now
-        return foregroundApp
     }
 
     private fun startForegroundService() {
