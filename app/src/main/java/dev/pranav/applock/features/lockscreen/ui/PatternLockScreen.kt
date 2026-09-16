@@ -40,6 +40,7 @@ fun PatternLockScreen(
 ) {
     val appLockRepository = LocalContext.current.appLockRepository()
     val context = LocalContext.current
+    if (AuthenticationGate(modifier, { onBiometricAuth?.invoke() }, onClose, showCloseButton)) return
     val windowInfo = LocalWindowInfo.current
 
     val screenWidth = windowInfo.containerSize.width

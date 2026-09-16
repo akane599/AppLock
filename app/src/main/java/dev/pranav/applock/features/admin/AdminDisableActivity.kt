@@ -36,7 +36,7 @@ import dev.pranav.applock.features.lockscreen.ui.PasswordIndicators
 import dev.pranav.applock.features.lockscreen.ui.PatternLockScreen
 import dev.pranav.applock.ui.theme.AppLockTheme
 
-class AdminDisableActivity : ComponentActivity() {
+class AdminDisableActivity : androidx.fragment.app.FragmentActivity() {
     private lateinit var appLockRepository: AppLockRepository
     private lateinit var devicePolicyManager: DevicePolicyManager
     private lateinit var deviceAdminComponentName: ComponentName
@@ -61,6 +61,14 @@ class AdminDisableActivity : ComponentActivity() {
         setContent {
             AppLockTheme {
                 Scaffold { padding ->
+                    val authenticate = dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication {
+                        DeviceAdmin().setPasswordVerified(this@AdminDisableActivity, true)
+                        appLockRepository.setAntiUninstallEnabled(false)
+                        finish()
+                    }
+                    if (dev.pranav.applock.features.lockscreen.ui.AuthenticationGate(
+                            Modifier.padding(padding), authenticate, { finish() }
+                        )) return@Scaffold
                     val lockType = appLockRepository.getLockType()
                     when (lockType) {
                         PreferencesRepository.LOCK_TYPE_PATTERN -> {

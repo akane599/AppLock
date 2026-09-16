@@ -93,7 +93,7 @@ fun AlphanumericSetPasswordScreen(
     }
 
     BackHandler {
-        if (isFirstTimeSetup) {
+        if (isFirstTimeSetup && appLockRepository?.isBiometricOnly() != true) {
             if (isConfirmationMode) {
                 isConfirmationMode = false
             } else {
@@ -189,6 +189,10 @@ fun AlphanumericSetPasswordScreen(
             }
         }
     }
+
+    if (dev.pranav.applock.features.lockscreen.ui.AuthenticationGate(
+            onClose = { activity?.finish() }, showBiometricOnly = false
+        )) return
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

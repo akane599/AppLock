@@ -123,8 +123,17 @@ fun SetPasswordScreen(
             }
         }
 
+    val biometricSetup: @Composable () -> Unit = {
+        if (isFirstTimeSetup && !isConfirmationMode &&
+            appLockRepository?.isBiometricOnly() != true) {
+            dev.pranav.applock.features.lockscreen.ui.BiometricOnlySetupButton {
+                navController.finishPasswordSetup(true)
+            }
+        }
+    }
+
     BackHandler {
-        if (isFirstTimeSetup) {
+        if (isFirstTimeSetup && appLockRepository?.isBiometricOnly() != true) {
             Toast.makeText(context, R.string.set_pin_to_continue_toast, Toast.LENGTH_SHORT).show()
         } else {
             if (navController.previousBackStackEntry != null) {
@@ -162,7 +171,12 @@ fun SetPasswordScreen(
         biometricPrompt.authenticate(promptInfo)
     }
 
+    if (dev.pranav.applock.features.lockscreen.ui.AuthenticationGate(
+            onClose = { activity?.finish() }, showBiometricOnly = false
+        )) return
+
     Scaffold(
+        bottomBar = { biometricSetup() },
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = {
             if (isFirstTimeSetup && !isLandscape) {

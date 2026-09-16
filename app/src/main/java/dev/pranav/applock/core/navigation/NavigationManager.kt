@@ -37,7 +37,7 @@ class NavigationManager(private val context: Context) {
         val hasPin = appLockPrefs.getString(PASSWORD_KEY, null) != null
         val hasPattern = appLockPrefs.getString(PATTERN_KEY, null) != null
 
-        return (hasPin || hasPattern)
+        return (hasPin || hasPattern || dev.pranav.applock.data.repository.PreferencesRepository(context).isBiometricOnly())
     }
 
     companion object {

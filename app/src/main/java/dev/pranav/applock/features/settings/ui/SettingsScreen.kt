@@ -90,6 +90,10 @@ fun SettingsScreen(
     var autoUnlock by remember { mutableStateOf(appLockRepository.isAutoUnlockEnabled()) }
     var useMaxBrightness by remember { mutableStateOf(appLockRepository.shouldUseMaxBrightness()) }
     var useBiometricAuth by remember { mutableStateOf(appLockRepository.isBiometricAuthEnabled()) }
+    var biometricOnly by remember { mutableStateOf(appLockRepository.isBiometricOnly()) }
+    val enableBiometricOnly = dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication(
+        enableBiometricOnly = true
+    ) { biometricOnly = true; useBiometricAuth = true }
     var unlockTimeDuration by remember { mutableIntStateOf(appLockRepository.getUnlockTimeDuration()) }
     var antiUninstallEnabled by remember { mutableStateOf(appLockRepository.isAntiUninstallEnabled()) }
     var disableHapticFeedback by remember { mutableStateOf(appLockRepository.shouldDisableHaptics()) }
@@ -274,11 +278,22 @@ fun SettingsScreen(
                                 stringResource(R.string.settings_screen_biometric_auth_desc_available)
                             else
                                 stringResource(R.string.settings_screen_biometric_auth_desc_unavailable),
-                            checked = useBiometricAuth && isBiometricAvailable,
-                            enabled = isBiometricAvailable,
+                            checked = (useBiometricAuth || biometricOnly) && isBiometricAvailable,
+                            enabled = isBiometricAvailable && !biometricOnly,
                             onCheckedChange = { isChecked ->
                                 useBiometricAuth = isChecked
                                 appLockRepository.setBiometricAuthEnabled(isChecked)
+                            }
+                        ),
+                        ToggleSettingItem(
+                            icon = Fingerprint,
+                            title = stringResource(R.string.biometric_only_title),
+                            subtitle = stringResource(if (biometricOnly) R.string.biometric_only_disable_description else R.string.biometric_only_description),
+                            checked = biometricOnly,
+                            enabled = isBiometricAvailable || biometricOnly,
+                            onCheckedChange = { enabled ->
+                                if (enabled) enableBiometricOnly()
+                                else navController.navigate(Screen.ChangePassword.route)
                             }
                         ),
                         ToggleSettingItem(

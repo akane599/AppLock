@@ -1,23 +1,20 @@
 package dev.pranav.applock.core.navigation
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import dev.pranav.applock.AppLockApplication
-import dev.pranav.applock.core.utils.LogUtils
 import dev.pranav.applock.data.repository.PreferencesRepository
 import dev.pranav.applock.features.antiuninstall.ui.AntiUninstallScreen
 import dev.pranav.applock.features.appintro.ui.AppIntroScreen
@@ -56,7 +53,9 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
         }
 
         composable(Screen.ChangePassword.route) {
-            when (application.appLockRepository.getLockType()) {
+            if (application.appLockRepository.isBiometricOnly()) {
+                BiometricCredentialSetup(navController)
+            } else when (application.appLockRepository.getLockType()) {
                 PreferencesRepository.LOCK_TYPE_PATTERN -> {
                     PatternSetPasswordScreen(navController, false)
                 }
@@ -85,6 +84,9 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
             val context = LocalActivity.current as FragmentActivity
             // Back must leave the activity, never reveal the protected back stack.
             BackHandler { context.finish() }
+            val authenticate = dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication {
+                handleAuthenticationSuccess(navController)
+            }
             val lockType = application.appLockRepository.getLockType()
 
             when (lockType) {
@@ -99,7 +101,7 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
                             isValid
                         },
                         onBiometricAuth = {
-                            handleBiometricAuthentication(context, navController)
+                            authenticate()
                         }
                     )
                 }
@@ -109,7 +111,7 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
                         showBiometricButton = application.appLockRepository.isBiometricAuthEnabled(),
                         fromMainActivity = true,
                         onBiometricAuth = {
-                            handleBiometricAuthentication(context, navController)
+                            authenticate()
                         },
                         onAuthSuccess = {
                             handleAuthenticationSuccess(navController)
@@ -122,7 +124,7 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
                         showBiometricButton = application.appLockRepository.isBiometricAuthEnabled(),
                         fromMainActivity = true,
                         onBiometricAuth = {
-                            handleBiometricAuthentication(context, navController)
+                            authenticate()
                         },
                         onAuthSuccess = {
                             handleAuthenticationSuccess(navController)
@@ -164,54 +166,6 @@ fun NavController.finishPasswordSetup(isFirstTimeSetup: Boolean) {
     }
 }
 
-private fun handleBiometricAuthentication(
-    context: FragmentActivity,
-    navController: NavHostController
-) {
-    try {
-        val executor = ContextCompat.getMainExecutor(context)
-        val biometricPrompt = BiometricPrompt(
-            context,
-            executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                    super.onAuthenticationError(errorCode, errString)
-                    Log.w(TAG, "Biometric authentication error: $errString ($errorCode)")
-                }
-
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    LogUtils.d(TAG, "Biometric authentication succeeded")
-                    handleAuthenticationSuccess(navController)
-                }
-
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    Log.w(TAG, "Biometric authentication failed (not recognized)")
-                }
-            }
-        )
-
-        val promptInfo = createBiometricPromptInfo()
-        biometricPrompt.authenticate(promptInfo)
-    } catch (e: Exception) {
-        Log.e(TAG, "Error during biometric authentication", e)
-    }
-}
-
-private fun createBiometricPromptInfo(): BiometricPrompt.PromptInfo {
-    return BiometricPrompt.PromptInfo.Builder()
-        .setTitle(BIOMETRIC_TITLE)
-        .setSubtitle(BIOMETRIC_SUBTITLE)
-        .setNegativeButtonText(BIOMETRIC_NEGATIVE_BUTTON)
-        .setAllowedAuthenticators(
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                    BiometricManager.Authenticators.BIOMETRIC_STRONG
-        )
-        .setConfirmationRequired(false)
-        .build()
-}
-
 private fun handleAuthenticationSuccess(navController: NavHostController) {
     if (navController.previousBackStackEntry != null) {
         navController.popBackStack()
@@ -226,9 +180,18 @@ private fun navigateToMain(navController: NavHostController) {
     }
 }
 
-private const val TAG = "AppNavHost"
 private const val ANIMATION_DURATION = 400
 private const val SCALE_INITIAL = 0.9f
-private const val BIOMETRIC_TITLE = "Confirm password"
-private const val BIOMETRIC_SUBTITLE = "Confirm biometric to continue"
-private const val BIOMETRIC_NEGATIVE_BUTTON = "Use PIN"
+
+@Composable
+private fun BiometricCredentialSetup(navController: NavHostController) {
+    var verified by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val authenticate = dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication {
+        verified = true
+    }
+    if (verified) SetPasswordScreen(navController, isFirstTimeSetup = true)
+    else dev.pranav.applock.features.lockscreen.ui.AuthenticationGate(
+        onBiometricAuth = authenticate,
+        onClose = { navController.popBackStack() }
+    )
+}

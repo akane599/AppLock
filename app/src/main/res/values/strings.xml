@@ -326,4 +326,9 @@ Make sure you have Shizuku installed and enabled via ADB. Tap \'Next\' to grant 
     <string name="uninstall_policy_failed">Could not change uninstall protection. Check Shizuku access and try again.</string>
     <string name="usage_protecting">Protecting your apps with Usage Stats</string>
     <string name="usage_unavailable">Protection unavailable. Grant usage access and display-over-other-apps permission.</string>
+    <string name="biometric_only_title">Use only biometrics for unlocking</string>
+    <string name="biometric_only_description">Unlock with your enrolled biometrics. PIN and pattern fallback are disabled. Keep biometrics enrolled on your device.</string>
+    <string name="biometric_unavailable">Biometrics are unavailable. Check your device biometric settings and try again.</string>
+    <string name="unlock_cooldown">Too many failed attempts. Try again in %1$d:%2$02d.</string>
+    <string name="biometric_only_disable_description">Set a PIN, pattern, or password to turn off biometric-only unlocking.</string>
 </resources>

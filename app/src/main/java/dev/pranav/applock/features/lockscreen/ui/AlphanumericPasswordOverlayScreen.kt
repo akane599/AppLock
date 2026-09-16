@@ -66,6 +66,7 @@ fun AlphanumericPasswordOverlayScreen(
     onPasswordAttempt: ((password: String) -> Boolean)? = null
 ) {
     val appLockRepository = LocalContext.current.appLockRepository()
+    if (AuthenticationGate(modifier, onBiometricAuth, onClose, showCloseButton)) return
     var passwordState by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
