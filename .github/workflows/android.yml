@@ -28,17 +28,22 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4.4.1
 
-      - name: Build with gradle
-        run: ./gradlew clean assemble
+      - name: Test and lint
+        run: ./gradlew :app:testDebugUnitTest :appintro:testDebugUnitTest lintDebug
+
+      - name: Build debug and release APKs
+        run: ./gradlew :app:assembleDebug :app:assembleRelease
 
       - name: Upload debug apks
         uses: actions/upload-artifact@v4.6.2
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
 
       - name: Upload release apks
         uses: actions/upload-artifact@v4.6.2
         with:
           name: app-release
-          path: app/build/outputs/apk/release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error

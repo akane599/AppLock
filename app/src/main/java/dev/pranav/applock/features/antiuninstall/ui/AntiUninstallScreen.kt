@@ -83,7 +83,11 @@ enum class ShizukuState {
     READY
 }
 
-class AntiUninstallViewModel: ViewModel() {
+class AntiUninstallViewModel(
+    private val applyPolicy: (String, Boolean) -> Unit = { name, enabled ->
+        if (enabled) blockUninstallForUser(name) else unblockUninstallForUser(name)
+    }
+): ViewModel() {
     private val _allApps = MutableStateFlow<List<AppInfo>>(emptyList())
     val allApps: StateFlow<List<AppInfo>> = _allApps.asStateFlow()
 
@@ -114,7 +118,7 @@ class AntiUninstallViewModel: ViewModel() {
             }
 
             _allApps.value = apps
-            _filteredApps.value = apps
+            filterApps(_searchQuery.value)
             _isLoading.value = false
         }
     }
@@ -140,32 +144,32 @@ class AntiUninstallViewModel: ViewModel() {
     }
 
     fun toggleAppProtection(context: Context, packageName: String) {
-        val repository = context.appLockRepository()
-        val currentProtected = _protectedApps.value.toMutableSet()
-
-        if (currentProtected.contains(packageName)) {
-            repository.removeAntiUninstallApp(packageName)
-            currentProtected.remove(packageName)
-            unblockUninstallForUser(packageName)
-        } else {
-            repository.addAntiUninstallApp(packageName)
-            currentProtected.add(packageName)
-            blockUninstallForUser(packageName)
-        }
-
-        _protectedApps.value = currentProtected
+        setProtection(context, packageName, packageName !in _protectedApps.value)
     }
 
     fun addManualPackage(context: Context, packageName: String) {
-        if (packageName.isNotBlank()) {
-            val repository = context.appLockRepository()
-            repository.addAntiUninstallApp(packageName.trim())
-
-            val currentProtected = _protectedApps.value.toMutableSet()
-            currentProtected.add(packageName.trim())
-            _protectedApps.value = currentProtected
-
+        val name = packageName.trim()
+        if (name.isNotEmpty() && setProtection(context, name, true)) {
             _manualPackageName.value = ""
+        }
+    }
+
+    private fun setProtection(context: Context, packageName: String, enabled: Boolean): Boolean {
+        return try {
+            // Persist only after Android applies the policy successfully.
+            applyPolicy(packageName, enabled)
+            val repository = context.appLockRepository()
+            if (enabled) repository.addAntiUninstallApp(packageName)
+            else repository.removeAntiUninstallApp(packageName)
+            _protectedApps.value = repository.getAntiUninstallApps()
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("AntiUninstall", "Cannot change uninstall protection", e)
+            android.widget.Toast.makeText(
+                context, dev.pranav.applock.R.string.uninstall_policy_failed,
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            false
         }
     }
 

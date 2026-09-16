@@ -217,15 +217,25 @@ class ShizukuAppLockService : Service() {
         }
         if (!monitorStarted) monitorStarted = shizukuActivityManager?.start() == true
         val enabled = appLockRepository.isProtectEnabled()
+        val overlayGranted = Settings.canDrawOverlays(this)
+        val accessibilityConnected = AppLockAccessibilityService.isConnected
+        val previous = appLockRepository.getEffectiveBackend()
+        if (AppLockManager.sessions.isShowing && !BackendFallbackPolicy.canRetainChallenge(
+                previous, overlayGranted, accessibilityConnected
+            )) {
+            // A removed window cannot finish authentication; it must not pin routing forever.
+            AppLockManager.sessions.resetUnlocks()
+            lockPresenter.dismiss()
+            AppLockAccessibilityService.refreshBackend()
+        }
         val desired = BackendFallbackPolicy.choose(
             protectionEnabled = enabled,
             shizukuAvailable = shizukuAvailable,
-            accessibilityConnected = AppLockAccessibilityService.isConnected,
+            accessibilityConnected = accessibilityConnected,
             usageAccessGranted = runCatching { hasUsagePermission() }.getOrDefault(false) &&
                 SystemClock.elapsedRealtime() >= usageRetryAfter,
-            overlayGranted = Settings.canDrawOverlays(this)
+            overlayGranted = overlayGranted
         )
-        val previous = appLockRepository.getEffectiveBackend()
         val active = BackendFallbackPolicy.transition(previous, desired, AppLockManager.sessions.isShowing)
         if (active != previous) {
             // A real protection gap invalidates grants, but must not cancel an open challenge.

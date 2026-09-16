@@ -26,6 +26,7 @@ import dev.pranav.applock.data.repository.AppLockRepository.Companion.shouldStar
 import dev.pranav.applock.data.repository.BackendImplementation
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 
 class UsageLockService: Service() {
     private val TAG = "UsageLockService"
@@ -44,6 +45,8 @@ class UsageLockService: Service() {
     private val lockPresenter by lazy { ServiceLockPresenter(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var pauseMonitoring = false
+    private var monitoringAvailable: Boolean? = null
+    private var notificationText = R.string.usage_unavailable
     private val monitor = object : Runnable {
         override fun run() {
             if (!isServiceRunning) return
@@ -68,8 +71,13 @@ class UsageLockService: Service() {
         }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        startForegroundService()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!shouldStartService(appLockRepository, this::class.java) || !hasUsagePermission()) {
+        if (!shouldStartService(appLockRepository, this::class.java)) {
             Log.e(TAG, "Permissions missing or service not needed. Stopping service.")
             stopSelf()
             return START_NOT_STICKY
@@ -87,7 +95,6 @@ class UsageLockService: Service() {
         registerReceiver(screenStateReceiver, filter)
 
         startMonitoringTimer()
-        startForegroundService()
 
         return START_STICKY
     }
@@ -96,6 +103,9 @@ class UsageLockService: Service() {
         isServiceRunning = false
         handler.removeCallbacksAndMessages(null)
         lockPresenter.destroy()
+        if (appLockRepository.getBackendImplementation() == BackendImplementation.USAGE_STATS) {
+            AppLockManager.sessions.clearGrants()
+        }
         LogUtils.d(TAG, "Service destroyed")
 
         try {
@@ -134,10 +144,7 @@ class UsageLockService: Service() {
                 stopSelf()
                 return
             }
-            if (!appLockRepository.isProtectEnabled()) {
-                lockPresenter.dismiss()
-                return
-            }
+            if (!updateProtectionStatus()) return
             if (pauseMonitoring || isDeviceLocked()) return
             val foreground = foregroundTracker.current() ?: return
             if (foreground.second in AppLockConstants.KNOWN_RECENTS_CLASSES) {
@@ -160,6 +167,33 @@ class UsageLockService: Service() {
             lockPresenter.show(currentPackage, trigger)
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error in Usage Stats monitoring", e)
+            setMonitoringAvailable(false, R.string.usage_unavailable)
+        }
+    }
+
+    private fun updateProtectionStatus(): Boolean {
+        val enabled = appLockRepository.isProtectEnabled()
+        val available = enabled && hasUsagePermission() && Settings.canDrawOverlays(this)
+        val text = when {
+            !enabled -> R.string.shizuku_paused
+            available -> R.string.usage_protecting
+            else -> R.string.usage_unavailable
+        }
+        setMonitoringAvailable(available, text)
+        return available
+    }
+
+    private fun setMonitoringAvailable(available: Boolean, text: Int) {
+        if (available != monitoringAvailable) {
+            // No grant or cached foreground can survive an interval without protection.
+            AppLockManager.sessions.resetUnlocks()
+            lockPresenter.dismiss()
+            foregroundTracker.reset()
+            monitoringAvailable = available
+        }
+        if (text != notificationText) {
+            notificationText = text
+            notificationManager.notify(NOTIFICATION_ID, createNotification())
         }
     }
 
@@ -212,7 +246,8 @@ class UsageLockService: Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("App Lock")
-            .setContentText("Protecting your apps")
+            .setContentText(getString(notificationText))
+            .setOnlyAlertOnce(true)
             .setSmallIcon(R.drawable.baseline_shield_24)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)

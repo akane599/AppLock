@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import dev.pranav.applock.R
+import dev.pranav.applock.core.utils.SecurityUtils
 import dev.pranav.applock.core.ui.shapes
 import dev.pranav.applock.core.utils.appLockRepository
 import dev.pranav.applock.core.utils.vibrate
@@ -347,7 +348,11 @@ fun PinPasswordOverlayScreen(
                                 showError = false
 
                                 if (appLockRepository.isAutoUnlockEnabled()) {
-                                    onPinAttempt?.invoke(passwordState.value)
+                                    if (fromMainActivity) {
+                                        if (appLockRepository.validatePassword(passwordState.value)) onAuthSuccess()
+                                    } else {
+                                        onPinAttempt?.invoke(passwordState.value)
+                                    }
                                 }
                             },
                             onPinIncorrect = { showError = true }
@@ -416,7 +421,11 @@ fun PinPasswordOverlayScreen(
                             showError = false
 
                             if (appLockRepository.isAutoUnlockEnabled()) {
-                                onPinAttempt?.invoke(passwordState.value)
+                                if (fromMainActivity) {
+                                    if (appLockRepository.validatePassword(passwordState.value)) onAuthSuccess()
+                                } else {
+                                    onPinAttempt?.invoke(passwordState.value)
+                                }
                             }
                         },
                         onPinIncorrect = { showError = true }
@@ -755,7 +764,7 @@ private fun addDigitToPassword(
     digit: String,
     onPasswordChange: () -> Unit
 ) {
-    passwordState.value += digit
+    passwordState.value = (passwordState.value + digit).take(SecurityUtils.MAX_PASSWORD_LENGTH)
     onPasswordChange()
 }
 

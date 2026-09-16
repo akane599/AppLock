@@ -221,7 +221,7 @@ class AppLockAccessibilityService : AccessibilityService() {
                 event.text.any { it.contains("App Lock") }
         val isAlertDialog =
             event.packageName == "com.google.android.packageinstaller" && event.className == "android.app.AlertDialog" && event.text.toString()
-                .lowercase().contains("App Lock")
+                .contains("App Lock", ignoreCase = true)
 
         return isAccessibilitySettings || isSubSettings || isAlertDialog
     }
@@ -238,8 +238,8 @@ class AppLockAccessibilityService : AccessibilityService() {
     }
 
     private fun isDeviceAdminPage(event: AccessibilityEvent): Boolean {
-        val hasDeviceAdminDescription = event.contentDescription?.toString()?.lowercase()
-            ?.contains("Device admin app") == true &&
+        val hasDeviceAdminDescription = event.contentDescription?.toString()
+            ?.contains("Device admin app", ignoreCase = true) == true &&
                 event.className == "android.widget.FrameLayout"
 
         val isAdminConfigClass =
@@ -258,7 +258,6 @@ class AppLockAccessibilityService : AccessibilityService() {
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 performGlobalAction(GLOBAL_ACTION_HOME)
-                Thread.sleep(100)
                 performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                 Toast.makeText(
                     this,
@@ -342,6 +341,8 @@ class AppLockAccessibilityService : AccessibilityService() {
     override fun onUnbind(intent: Intent?): Boolean {
         return try {
             Log.d(TAG, "Accessibility service unbound")
+            if (shouldAccessibilityHandleLocking()) AppLockManager.sessions.resetUnlocks()
+            lockPresenter?.dismiss()
             isServiceRunning = false
             if (connectedService === this) connectedService = null
 

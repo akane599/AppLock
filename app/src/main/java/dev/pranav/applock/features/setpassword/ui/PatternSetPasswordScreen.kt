@@ -157,8 +157,8 @@ fun PatternSetPasswordScreen(
 
             else -> {
                 if (patternState == confirmPatternState) {
-                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PATTERN)
                     appLockRepository?.setPattern(patternState)
+                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PATTERN)
                     Toast.makeText(
                         context,
                         resources.getString(R.string.password_set_successfully_toast),

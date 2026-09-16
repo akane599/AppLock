@@ -43,6 +43,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import dev.pranav.applock.AppLockApplication
 import dev.pranav.applock.R
+import dev.pranav.applock.core.utils.SecurityUtils
 import dev.pranav.applock.core.navigation.Screen
 import dev.pranav.applock.core.navigation.finishPasswordSetup
 import dev.pranav.applock.data.repository.PreferencesRepository
@@ -318,7 +319,7 @@ fun SetPasswordScreen(
 
                         when (key) {
                             "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" -> {
-                                updatePassword(currentActivePassword + key)
+                                updatePassword((currentActivePassword + key).take(SecurityUtils.MAX_PASSWORD_LENGTH))
                             }
 
                             "backspace" -> {
@@ -352,6 +353,7 @@ fun SetPasswordScreen(
                                         else -> {
                                             if (passwordState == confirmPasswordState) {
                                                 appLockRepository?.setPassword(passwordState)
+                                                appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PIN)
                                                 Toast.makeText(
                                                     context,
                                                     resources.getString(R.string.password_set_successfully_toast),
@@ -521,28 +523,30 @@ fun SetPasswordScreen(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(bottom = 16.dp)
-                ) {
-                    TextButton(
-                        onClick = {
-                            navController.navigate(Screen.SetPasswordPattern.route)
-                        }
+                if (!isVerifyOldPasswordMode && !isConfirmationMode) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(bottom = 16.dp)
                     ) {
-                        Text(
-                            stringResource(R.string.use_pattern_button)
-                        )
-                    }
+                        TextButton(
+                            onClick = {
+                                navController.navigate(Screen.SetPasswordPattern.route)
+                            }
+                        ) {
+                            Text(
+                                stringResource(R.string.use_pattern_button)
+                            )
+                        }
 
-                    TextButton(
-                        onClick = {
-                            navController.navigate(Screen.SetPasswordAlphanumeric.route)
+                        TextButton(
+                            onClick = {
+                                navController.navigate(Screen.SetPasswordAlphanumeric.route)
+                            }
+                        ) {
+                            Text(
+                                stringResource(R.string.use_password_button)
+                            )
                         }
-                    ) {
-                        Text(
-                            stringResource(R.string.use_password_button)
-                        )
                     }
                 }
 
@@ -565,7 +569,7 @@ fun SetPasswordScreen(
 
                         when (key) {
                             "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" -> {
-                                updatePassword(currentActivePassword + key)
+                                updatePassword((currentActivePassword + key).take(SecurityUtils.MAX_PASSWORD_LENGTH))
                             }
 
                             "backspace" -> {
@@ -598,24 +602,15 @@ fun SetPasswordScreen(
 
                                         else -> {
                                             if (passwordState == confirmPasswordState) {
-                                                appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PIN)
                                                 appLockRepository?.setPassword(passwordState)
+                                                appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PIN)
                                                 Toast.makeText(
                                                     context,
                                                     resources.getString(R.string.password_set_successfully_toast),
                                                     Toast.LENGTH_SHORT
                                                 ).show()
 
-                                                navController.navigate(Screen.Main.route) {
-                                                    popUpTo(Screen.SetPassword.route) {
-                                                        inclusive = true
-                                                    }
-                                                    if (isFirstTimeSetup) {
-                                                        popUpTo(Screen.AppIntro.route) {
-                                                            inclusive = true
-                                                        }
-                                                    }
-                                                }
+                                                navController.finishPasswordSetup(isFirstTimeSetup)
                                             } else {
                                                 showMismatchError = true
                                                 confirmPasswordState = ""

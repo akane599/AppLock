@@ -10,6 +10,11 @@ class UsageForegroundTracker(context: Context) {
     private var lastQueryTime = 0L
     private var foreground: Pair<String, String>? = null
 
+    fun reset() {
+        lastQueryTime = 0L
+        foreground = null
+    }
+
     fun current(): Pair<String, String>? {
         val now = System.currentTimeMillis()
         if (lastQueryTime == 0L || lastQueryTime > now) {

@@ -61,4 +61,26 @@ class BackendFallbackPolicyTest {
         }
         assertNull(BackendFallbackPolicy.effective(SHIZUKU, null))
     }
+    @Test fun aRemovedWindowCannotKeepRoutingPinnedToItsBackend() {
+        for (backend in listOf(SHIZUKU, USAGE_STATS)) {
+            assertFalse(BackendFallbackPolicy.canRetainChallenge(backend, false, true))
+            assertTrue(BackendFallbackPolicy.canRetainChallenge(backend, true, false))
+        }
+        assertFalse(BackendFallbackPolicy.canRetainChallenge(ACCESSIBILITY, true, false))
+        assertTrue(BackendFallbackPolicy.canRetainChallenge(ACCESSIBILITY, false, true))
+        assertFalse(BackendFallbackPolicy.canRetainChallenge(null, true, true))
+    }
+
+    @Test fun canceledUnavailableChallengeCannotUnlockAndFallbackCanStart() {
+        val state = LockSessionState { 100L }
+        val stale = state.begin("target")!!
+        state.claim(stale, "target")
+        if (!BackendFallbackPolicy.canRetainChallenge(USAGE_STATS, false, true)) {
+            state.resetUnlocks()
+        }
+        assertEquals(ACCESSIBILITY, BackendFallbackPolicy.transition(USAGE_STATS, ACCESSIBILITY, state.isShowing))
+        assertFalse(state.authenticate(stale))
+        assertNotNull(state.begin("target"))
+    }
+
 }

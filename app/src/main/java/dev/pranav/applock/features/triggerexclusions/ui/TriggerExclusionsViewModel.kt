@@ -45,7 +45,7 @@ class TriggerExclusionsViewModel : ViewModel() {
             }
 
             _allApps.value = apps
-            _filteredApps.value = apps
+            filterApps(_searchQuery.value)
             _isLoading.value = false
         }
     }

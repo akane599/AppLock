@@ -323,4 +323,7 @@ Make sure you have Shizuku installed and enabled via ADB. Tap \'Next\' to grant 
     <string name="shizuku_fallback_usage">Protecting apps with Usage Stats. Shizuku will resume automatically.</string>
     <string name="shizuku_switch_pending">Finishing authentication before switching protection methods.</string>
     <string name="shizuku_no_fallback">Protection unavailable. Enable Accessibility, or grant usage access and display-over-other-apps permission.</string>
+    <string name="uninstall_policy_failed">Could not change uninstall protection. Check Shizuku access and try again.</string>
+    <string name="usage_protecting">Protecting your apps with Usage Stats</string>
+    <string name="usage_unavailable">Protection unavailable. Grant usage access and display-over-other-apps permission.</string>
 </resources>

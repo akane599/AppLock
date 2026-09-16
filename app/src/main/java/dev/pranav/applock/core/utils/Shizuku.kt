@@ -4,14 +4,16 @@ import android.os.Process
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
 
-val pm = SystemServiceHelper.getSystemService("package")
-    .let(::ShizukuBinderWrapper)
-    .let(android.content.pm.IPackageManager.Stub::asInterface)
+fun blockUninstallForUser(packageName: String) = setUninstallBlocked(packageName, true)
 
-fun blockUninstallForUser(packageName: String) {
-    pm.setBlockUninstallForUser(packageName, true, Process.myUserHandle().describeContents())
-}
+fun unblockUninstallForUser(packageName: String) = setUninstallBlocked(packageName, false)
 
-fun unblockUninstallForUser(packageName: String) {
-    pm.setBlockUninstallForUser(packageName, false, Process.myUserHandle().describeContents())
+private fun setUninstallBlocked(packageName: String, blocked: Boolean) {
+    // Resolve a fresh binder after Shizuku restarts; describeContents() is not a user ID.
+    val manager = SystemServiceHelper.getSystemService("package")
+        .let(::ShizukuBinderWrapper)
+        .let(android.content.pm.IPackageManager.Stub::asInterface)
+    check(manager.setBlockUninstallForUser(packageName, blocked, Process.myUid() / 100_000)) {
+        "Android rejected the uninstall policy"
+    }
 }

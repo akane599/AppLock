@@ -173,8 +173,8 @@ fun AlphanumericSetPasswordScreen(
 
             else -> {
                 if (passwordState == confirmPasswordState) {
-                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PASSWORD)
                     appLockRepository?.setPassword(passwordState)
+                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PASSWORD)
                     Toast.makeText(
                         context,
                         resources.getString(R.string.password_set_successfully_toast),

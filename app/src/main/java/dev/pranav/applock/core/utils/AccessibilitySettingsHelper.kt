@@ -9,19 +9,12 @@ import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuRemoteProcess
 
 fun Context.isAccessibilityServiceEnabled(): Boolean {
-    val accessibilityServiceName =
-        "$packageName/$packageName.services.AppLockAccessibilityService"
+    val component = ComponentName(this, dev.pranav.applock.services.AppLockAccessibilityService::class.java)
     val enabledServices = Settings.Secure.getString(
         contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-    )
-    if (enabledServices?.contains(accessibilityServiceName) == true) {
-        return true
-    } else {
-        if (enabledServices?.contains("$packageName/.services.AppLockAccessibilityService") == true) {
-            return true
-        }
-    }
-    return false
+    ).orEmpty()
+    return enabledServices.split(':').mapNotNull(ComponentName::unflattenFromString).contains(component)
+
 }
 
 fun openAccessibilitySettings(context: Context) {
@@ -40,26 +33,7 @@ fun Context.enableAccessibilityServiceWithShizuku(serviceComponentName: Componen
     }
 
     try {
-        val getCurrentCommand = "settings get secure enabled_accessibility_services"
-        val currentServices = exec(getCurrentCommand).first()
-
-        val servicesSet = currentServices.split(':')
-            .filter { it.isNotBlank() }
-            .toMutableSet()
-
-        if (servicesSet.contains(serviceString)) {
-            Log.i(TAG, "Service '$serviceString' is already enabled.")
-            return true
-        }
-
-        servicesSet.add(serviceString)
-        val newServicesList = servicesSet.joinToString(":")
-
-        val enableServiceCommand =
-            "settings put secure enabled_accessibility_services $newServicesList"
-        val enableGlobalCommand = "settings put secure accessibility_enabled 1"
-
-        exec(enableServiceCommand, enableGlobalCommand)
+        enableAccessibilityComponent(serviceComponentName) { exec(*it) }
 
         Log.i(TAG, "Successfully enabled service: $serviceString")
         return true
@@ -74,29 +48,29 @@ fun Context.enableAccessibilityServiceWithShizuku(serviceComponentName: Componen
     }
 }
 
-private fun exec(vararg command: String): List<String> {
-    val output = mutableListOf<String>()
-    if (Shizuku.pingBinder()) {
-        Log.i("ShizukuPermissionHandler", "Shizuku is running")
+internal fun enableAccessibilityComponent(
+    component: ComponentName,
+    execute: (Array<out String>) -> String
+) {
+    val currentServices = execute(arrayOf("settings", "get", "secure", "enabled_accessibility_services"))
+    val services = currentServices.trim().split(':')
+        .mapNotNull(ComponentName::unflattenFromString).toMutableSet()
+    services.add(component)
+    execute(arrayOf("settings", "put", "secure", "enabled_accessibility_services",
+        services.joinToString(":") { it.flattenToString() }))
+    execute(arrayOf("settings", "put", "secure", "accessibility_enabled", "1"))
+}
+
+private fun exec(vararg command: String): String {
+    val method = Shizuku::class.java.getDeclaredMethod(
+        "newProcess", Array<String>::class.java, Array<String>::class.java, String::class.java
+    ).apply { isAccessible = true }
+    val process = method.invoke(null, command, null, "/") as ShizukuRemoteProcess
+    try {
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        check(process.waitFor() == 0) { "Shizuku settings command failed" }
+        return output
+    } finally {
+        process.destroy()
     }
-    val m = Shizuku::class.java.getDeclaredMethod(
-        "newProcess",
-        Array<String>::class.java,
-        Array<String>::class.java,
-        String::class.java
-    )
-    m.isAccessible = true
-    val process =
-        m.invoke(null, arrayOf("sh", "-c", *command), null, "/") as ShizukuRemoteProcess
-    process.apply {
-        waitFor()
-        Log.i("ShizukuPermissionHandler", "Process exited with code ${exitValue()}")
-        inputStream.bufferedReader().use {
-            output.addAll(it.readLines())
-        }
-        errorStream.bufferedReader().use {
-            output.addAll(it.readLines().map { "error: it" })
-        }
-    }
-    return output
 }

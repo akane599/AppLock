@@ -18,6 +18,16 @@ object BackendFallbackPolicy {
         else -> null
     }
 
+    fun canRetainChallenge(
+        current: BackendImplementation?,
+        overlayGranted: Boolean,
+        accessibilityConnected: Boolean
+    ): Boolean = when (current) {
+        BackendImplementation.SHIZUKU, BackendImplementation.USAGE_STATS -> overlayGranted
+        BackendImplementation.ACCESSIBILITY -> accessibilityConnected
+        null -> false
+    }
+
     fun transition(
         current: BackendImplementation?,
         desired: BackendImplementation?,

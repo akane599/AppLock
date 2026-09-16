@@ -1,6 +1,7 @@
 package dev.pranav.applock.core.navigation
 
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -82,6 +83,8 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
 
         composable(Screen.PasswordOverlay.route) {
             val context = LocalActivity.current as FragmentActivity
+            // Back must leave the activity, never reveal the protected back stack.
+            BackHandler { context.finish() }
             val lockType = application.appLockRepository.getLockType()
 
             when (lockType) {
@@ -146,7 +149,7 @@ fun AppNavHost(navController: NavHostController, startDestination: String) {
 fun NavController.finishPasswordSetup(isFirstTimeSetup: Boolean) {
     if (isFirstTimeSetup) {
         navigate(Screen.Main.route) {
-            popUpTo(Screen.AppIntro.route) {
+            popUpTo(graph.id) {
                 inclusive = true
             }
             launchSingleTop = true
@@ -179,7 +182,7 @@ private fun handleBiometricAuthentication(
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     LogUtils.d(TAG, "Biometric authentication succeeded")
-                    navigateToMain(navController)
+                    handleAuthenticationSuccess(navController)
                 }
 
                 override fun onAuthenticationFailed() {
