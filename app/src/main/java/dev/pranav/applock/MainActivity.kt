@@ -29,7 +29,9 @@ class MainActivity : FragmentActivity() {
         setContent {
             AppLockTheme {
                 val navController = rememberNavController()
-                val startDestination = navigationManager.determineStartDestination()
+                val startDestination = androidx.compose.runtime.remember {
+                    navigationManager.determineStartDestination()
+                }
 
                 AppNavHost(
                     navController = navController,
@@ -50,7 +52,7 @@ class MainActivity : FragmentActivity() {
             return
         }
 
-        if (currentRoute != Screen.PasswordOverlay.route && currentRoute != Screen.SetPassword.route && currentRoute != Screen.SetPasswordPattern.route && currentRoute != Screen.SetPasswordAlphanumeric.route) {
+        if (currentRoute != Screen.PasswordOverlay.route) {
             navController.navigate(Screen.PasswordOverlay.route)
         }
     }

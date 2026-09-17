@@ -143,4 +143,17 @@ class LockSessionStateTest {
         time = 0L
         assertTrue(needsAuth(minutes = 1))
     }
+    @Test fun protectionGapRevokesGrantsWithoutCancelingPendingAuthentication() {
+        state.release(unlock())
+        val pending = state.begin("b")!!
+        assertTrue(state.claim(pending, "b"))
+        state.clearGrants()
+        assertTrue(needsAuth(minutes = 10_000))
+        assertTrue(state.owns(pending))
+        assertNull(state.begin("b"))
+        assertTrue(state.authenticate(pending))
+        state.release(pending)
+        state.observeForeground("b", emptySet())
+        assertFalse(needsAuth("b"))
+    }
 }

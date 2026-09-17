@@ -78,7 +78,11 @@
             android:name=".services.ShizukuAppLockService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse|systemExempted" />
+            android:foregroundServiceType="specialUse|systemExempted">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="app_lock" />
+        </service>
 
         <service
             android:name=".services.UsageLockService"

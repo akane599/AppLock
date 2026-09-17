@@ -6,7 +6,7 @@ import androidx.compose.ui.geometry.Offset
 
 /**
  * Represents a single dot in the pattern grid.
- * Overrides equals/hashCode to compare only by ID, preventing Animatable state from breaking collection checks.
+ * Selection compares IDs explicitly; geometry and animation belong to the current layout.
  */
 data class Dot(
     val id: Int,

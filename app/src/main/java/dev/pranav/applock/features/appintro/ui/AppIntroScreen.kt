@@ -414,7 +414,12 @@ fun AppIntroScreen(navController: NavController) {
                 icon = Icons.Default.QueryStats,
                 backgroundColor = Color(0xFFCE5151),
                 contentColor = Color.White,
-                onNext = {
+                onNext = shizukuPermission@{
+                    if (!Shizuku.pingBinder()) {
+                        Toast.makeText(context, R.string.settings_screen_shizuku_not_running_toast,
+                            Toast.LENGTH_LONG).show()
+                        return@shizukuPermission false
+                    }
                     val isGranted = if (Shizuku.isPreV11()) {
                         checkSelfPermission(
                             context,
@@ -461,7 +466,7 @@ fun AppIntroScreen(navController: NavController) {
                 AppUsageMethod.ACCESSIBILITY -> context.isAccessibilityServiceEnabled()
                 AppUsageMethod.USAGE_STATS -> context.hasUsagePermission()
                 AppUsageMethod.SHIZUKU -> {
-                    if (Shizuku.isPreV11()) {
+                    if (!Shizuku.pingBinder()) false else if (Shizuku.isPreV11()) {
                         checkSelfPermission(
                             context,
                             ShizukuProvider.PERMISSION

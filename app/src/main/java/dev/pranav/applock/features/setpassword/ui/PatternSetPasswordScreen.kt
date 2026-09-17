@@ -78,7 +78,7 @@ fun PatternSetPasswordScreen(
     val isLandscape = screenWidth > screenHeight
 
     BackHandler {
-        if (isFirstTimeSetup) {
+        if (isFirstTimeSetup && appLockRepository?.isBiometricOnly() != true) {
             if (isConfirmationMode) {
                 isConfirmationMode = false
             } else {
@@ -157,8 +157,8 @@ fun PatternSetPasswordScreen(
 
             else -> {
                 if (patternState == confirmPatternState) {
-                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PATTERN)
                     appLockRepository?.setPattern(patternState)
+                    appLockRepository?.setLockType(PreferencesRepository.LOCK_TYPE_PATTERN)
                     Toast.makeText(
                         context,
                         resources.getString(R.string.password_set_successfully_toast),
@@ -173,6 +173,10 @@ fun PatternSetPasswordScreen(
             }
         }
     }
+
+    if (dev.pranav.applock.features.lockscreen.ui.AuthenticationGate(
+            onClose = { activity?.finish() }, showBiometricOnly = false
+        )) return
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,

@@ -46,6 +46,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import dev.pranav.applock.R
 import dev.pranav.applock.core.broadcast.DeviceAdmin
+import dev.pranav.applock.core.broadcast.AppLockServiceStarter
 import dev.pranav.applock.core.navigation.Screen
 import dev.pranav.applock.core.utils.appLockRepository
 import dev.pranav.applock.core.utils.hasUsagePermission
@@ -90,6 +91,9 @@ fun MainScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val appLockRepository = context.appLockRepository()
+                if (appLockRepository.isProtectEnabled()) {
+                    AppLockServiceStarter.startAppropriateServices(context, appLockRepository)
+                }
                 val backend = appLockRepository.getBackendImplementation()
                 val isAntiUninstallEnabled = appLockRepository.isAntiUninstallEnabled()
                 val dpm =
@@ -166,6 +170,9 @@ fun MainScreen(
                         onClick = {
                             appLockRepository.setProtectEnabled(!applockEnabled)
                             applockEnabled = !applockEnabled
+                            if (applockEnabled) {
+                                AppLockServiceStarter.startAppropriateServices(context, appLockRepository)
+                            }
                         },
                         shape = RoundedCornerShape(16.dp),
                         color = if (applockEnabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,

@@ -42,23 +42,9 @@ root required.
 
 <br/>
 
-> [!CAUTION]
-> Google Play Protect is blocking some people from installing/updating App Lock because it uses Overlay Permission. It uses a false pretext of "this app may try to access sensitive information"
-> without any base or information. If this happens to you, consider disabling Play Protect temporarily as mentioned [here](https://www.airdroid.com/quick-guides/disable-google-play-protect).
->
-> You may enable it back later after you install the app. We understand this introduces unnecessary friction but there's nothing we can do about it. Google does not like it
-> when other developers try to fill the gaps they create themselves.
-
-<br/>
-
-> [!NOTE]
-> You may confirm that the app is completely secure
->
-> VirusTotal Analysis: [v1.5.0 Analysis](https://www.virustotal.com/gui/url/ead3a434b961ce332b49398d73a10598b2cee6d665c54bb4a66c825794465d72)
-> 
-> Exodus Privacy: [Privacy Report](https://reports.exodus-privacy.eu.org/en/reports/dev.pranav.applock/latest)
-
-<br/>
+AppLock requires sensitive Android permissions for foreground detection and lock windows.
+Review installation warnings and grant only the permissions needed for your chosen backend.
+Third-party scan reports do not establish that an app is completely secure.
 
 ## Features
 
@@ -132,8 +118,12 @@ Every contribution matters.
 ## Protection limits
 
 AppLock detects foreground apps and places an authentication window over them. Keep the
-selected backend running and its permissions granted. Shizuku protection pauses while
-Shizuku is unavailable and resumes when the connection and permission return.
+selected backend running and its permissions granted. If Shizuku becomes unavailable,
+AppLock automatically uses a connected Accessibility service, then Usage Stats if usage
+access and display-over-other-apps permission are granted. It returns to Shizuku after
+a successful task query, waiting for any open authentication prompt to finish. Without
+a usable backend, the service notification reports that protection is unavailable.
+See [fallback setup and checks](docs/shizuku-fallback.md).
 
 Locking an app does not hide that app's saved thumbnail in Android Recents. AppLock secures
 its own windows; target-app preview privacy requires support from the target app or system.
@@ -164,3 +154,33 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Contributor verification
+
+Use JDK 17 and Android SDK platform 37 with `ANDROID_HOME` set (or an untracked
+`local.properties`). Run:
+
+```sh
+./gradlew :app:testDebugUnitTest :appintro:testDebugUnitTest lintDebug
+./gradlew :app:assembleDebug :app:assembleRelease
+```
+
+Device regressions can use an isolated installation without replacing your normal AppLock:
+
+```sh
+./gradlew -PauditBuild :app:connectedDebugAndroidTest :patternlock:connectedDebugAndroidTest
+```
+
+Use the isolated variant or a disposable device for tests: app tests write synthetic
+credentials and preferences. Rebuild without `-PauditBuild` for the normal application ID.
+Release APKs currently use the local debug signing key; configure private release signing
+before distributing a production build. See [the repository audit](AUDIT_REPORT.md).
+
+### GitHub Actions APK builds
+
+The `Android CI` workflow builds debug and release APKs on pushes to any branch and
+on pull requests. To build manually, open **Actions → Android CI → Run workflow**,
+choose the branch, and run it. The selected branch must contain the workflow file.
+Download `app-debug` and `app-release` from the completed run's **Artifacts** section.
+The workflow runs JVM tests and lint before building; release APKs currently use debug
+signing, as described above.

@@ -54,6 +54,7 @@ import dev.pranav.applock.ui.icons.*
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuProvider
 import kotlin.math.abs
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +63,7 @@ fun SettingsScreen(
 ) {
     val resources = LocalResources.current
     val context = LocalContext.current
+    val logExportScope = rememberCoroutineScope()
     val appLockRepository = remember { AppLockRepository(context) }
 
     var showDialog by remember { mutableStateOf(false) }
@@ -88,6 +90,10 @@ fun SettingsScreen(
     var autoUnlock by remember { mutableStateOf(appLockRepository.isAutoUnlockEnabled()) }
     var useMaxBrightness by remember { mutableStateOf(appLockRepository.shouldUseMaxBrightness()) }
     var useBiometricAuth by remember { mutableStateOf(appLockRepository.isBiometricAuthEnabled()) }
+    var biometricOnly by remember { mutableStateOf(appLockRepository.isBiometricOnly()) }
+    val enableBiometricOnly = dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication(
+        enableBiometricOnly = true
+    ) { biometricOnly = true; useBiometricAuth = true }
     var unlockTimeDuration by remember { mutableIntStateOf(appLockRepository.getUnlockTimeDuration()) }
     var antiUninstallEnabled by remember { mutableStateOf(appLockRepository.isAntiUninstallEnabled()) }
     var disableHapticFeedback by remember { mutableStateOf(appLockRepository.shouldDisableHaptics()) }
@@ -272,11 +278,22 @@ fun SettingsScreen(
                                 stringResource(R.string.settings_screen_biometric_auth_desc_available)
                             else
                                 stringResource(R.string.settings_screen_biometric_auth_desc_unavailable),
-                            checked = useBiometricAuth && isBiometricAvailable,
-                            enabled = isBiometricAvailable,
+                            checked = (useBiometricAuth || biometricOnly) && isBiometricAvailable,
+                            enabled = isBiometricAvailable && !biometricOnly,
                             onCheckedChange = { isChecked ->
                                 useBiometricAuth = isChecked
                                 appLockRepository.setBiometricAuthEnabled(isChecked)
+                            }
+                        ),
+                        ToggleSettingItem(
+                            icon = Fingerprint,
+                            title = stringResource(R.string.biometric_only_title),
+                            subtitle = stringResource(if (biometricOnly) R.string.biometric_only_disable_description else R.string.biometric_only_description),
+                            checked = biometricOnly,
+                            enabled = isBiometricAvailable || biometricOnly,
+                            onCheckedChange = { enabled ->
+                                if (enabled) enableBiometricOnly()
+                                else navController.navigate(Screen.ChangePassword.route)
                             }
                         ),
                         ToggleSettingItem(
@@ -382,22 +399,24 @@ fun SettingsScreen(
                             title = stringResource(R.string.settings_Screen_export_audit),
                             subtitle = stringResource(R.string.settings_screen_export_audit_desc),
                             onClick = {
-                                val uri = LogUtils.exportAuditLogs()
-                                if (uri != null) {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                logExportScope.launch {
+                                    val uri = LogUtils.exportAuditLogs()
+                                    if (uri != null) {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(shareIntent, "Share audit logs")
+                                        )
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            resources.getString(R.string.settings_screen_export_logs_error),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
-                                    context.startActivity(
-                                        Intent.createChooser(shareIntent, "Share audit logs")
-                                    )
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        resources.getString(R.string.settings_screen_export_logs_error),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 }
                             }
                         ),
@@ -406,22 +425,24 @@ fun SettingsScreen(
                             title = stringResource(R.string.settings_screen_export_logs_title),
                             subtitle = stringResource(R.string.settings_screen_export_logs_desc),
                             onClick = {
-                                val uri = LogUtils.exportLogs()
-                                if (uri != null) {
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                logExportScope.launch {
+                                    val uri = LogUtils.exportLogs()
+                                    if (uri != null) {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(
+                                            Intent.createChooser(shareIntent, "Share logs")
+                                        )
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            resources.getString(R.string.settings_screen_export_logs_error),
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
-                                    context.startActivity(
-                                        Intent.createChooser(shareIntent, "Share logs")
-                                    )
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        resources.getString(R.string.settings_screen_export_logs_error),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 }
                             }
                         ),
@@ -776,7 +797,12 @@ fun BackendSelectionCard(
                         onClick = {
                             when (backend) {
                                 BackendImplementation.SHIZUKU -> {
-                                    if (!Shizuku.pingBinder() || Shizuku.checkSelfPermission() == PackageManager.PERMISSION_DENIED) {
+                                    if (!Shizuku.pingBinder()) {
+                                        Toast.makeText(context, R.string.settings_screen_shizuku_not_running_toast,
+                                            Toast.LENGTH_LONG).show()
+                                        return@BackendSelectionItem
+                                    }
+                                    if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_DENIED) {
                                         if (Shizuku.isPreV11()) {
                                             shizukuPermissionLauncher.launch(ShizukuProvider.PERMISSION)
                                         } else if (Shizuku.pingBinder()) {
@@ -915,11 +941,12 @@ private fun getBackendDisplayName(backend: BackendImplementation): String {
     }
 }
 
+@Composable
 private fun getBackendDescription(backend: BackendImplementation): String {
     return when (backend) {
         BackendImplementation.ACCESSIBILITY -> "Standard method that works on most devices"
         BackendImplementation.USAGE_STATS -> "Experimental method using app usage statistics"
-        BackendImplementation.SHIZUKU -> "Advanced method using Shizuku and internal APIs"
+        BackendImplementation.SHIZUKU -> stringResource(R.string.settings_screen_backend_implementation_shizuku_desc)
     }
 }
 

@@ -17,24 +17,105 @@ class PreferencesRepository(context: Context) {
     private val settingsPrefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME_SETTINGS, Context.MODE_PRIVATE)
 
+    fun isBiometricOnly(): Boolean = settingsPrefs.getBoolean("biometric_only", false)
+
+    fun setBiometricOnly(enabled: Boolean) {
+        settingsPrefs.edit(commit = true) {
+            putBoolean("biometric_only", enabled)
+            if (enabled) putBoolean(KEY_BIOMETRIC_AUTH_ENABLED, true)
+        }
+    }
+
+    fun passwordLength(): Int = appLockPrefs.getInt("password_length", 0)
+
+    private fun bootCount(): Int = android.provider.Settings.Global.getInt(
+        appContext.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1
+    )
+
+    private val appContext = context.applicationContext
+
+    private fun attemptState(): UnlockAttemptState {
+        val state = UnlockAttemptState(
+            failures = appLockPrefs.getInt("unlock_failures", 0),
+            level = appLockPrefs.getInt("cooldown_level", 0),
+            duration = appLockPrefs.getLong("cooldown_duration", 0L),
+            boot = appLockPrefs.getInt("cooldown_boot", -1),
+            deadline = appLockPrefs.getLong("cooldown_elapsed_end", 0L)
+        )
+        val current = state.onBoot(bootCount(), android.os.SystemClock.elapsedRealtime())
+        if (current != state) saveAttemptState(current)
+        return current
+    }
+
+    private fun saveAttemptState(state: UnlockAttemptState) {
+        appLockPrefs.edit(commit = true) {
+            putInt("unlock_failures", state.failures)
+            putInt("cooldown_level", state.level)
+            putLong("cooldown_duration", state.duration)
+            putInt("cooldown_boot", state.boot)
+            putLong("cooldown_elapsed_end", state.deadline)
+        }
+    }
+
+    fun cooldownRemainingMillis(): Long = synchronized(attemptLock) {
+        val state = attemptState()
+        val remaining = state.remaining(android.os.SystemClock.elapsedRealtime())
+        if (remaining == 0L && state.duration > 0L) {
+            saveAttemptState(state.copy(duration = 0L, deadline = 0L))
+        }
+        remaining
+    }
+
+    fun recordAuthenticationFailure() = synchronized(attemptLock) {
+        saveAttemptState(attemptState().failed(android.os.SystemClock.elapsedRealtime()))
+    }
+
+    fun recordBiometricLockout() {
+        repeat(UnlockAttemptPolicy.MAX_FAILURES) { recordAuthenticationFailure() }
+    }
+
+    fun recordBiometricSuccess(): Boolean = synchronized(attemptLock) {
+        if (!isBiometricAuthEnabled() || cooldownRemainingMillis() > 0L) return@synchronized false
+        resetAttempts()
+        true
+    }
+
+    private fun resetAttempts() {
+        saveAttemptState(attemptState().succeeded(android.os.SystemClock.elapsedRealtime()))
+    }
+
+    private fun authenticate(check: () -> Boolean): Boolean = synchronized(attemptLock) {
+        if (isBiometricOnly() || cooldownRemainingMillis() > 0L) return@synchronized false
+        check().also { if (it) resetAttempts() else recordAuthenticationFailure() }
+    }
+
     fun setPassword(password: String) {
         val salt = SecurityUtils.generateSalt()
         val saltedHash = SecurityUtils.hashPassword(password, salt)
-        appLockPrefs.edit(commit = true) { putString(KEY_PASSWORD, saltedHash) }
+        appLockPrefs.edit(commit = true) {
+            putString(KEY_PASSWORD, saltedHash)
+            putInt("password_length", password.length)
+        }
     }
 
     fun getPassword(): String? {
         return appLockPrefs.getString(KEY_PASSWORD, null)
     }
 
-    fun validatePassword(input: String): Boolean {
+    fun validatePassword(input: String): Boolean = authenticate { checkPassword(input) }
+
+    private fun checkPassword(input: String): Boolean {
         val stored = getPassword()
         if (stored.isNullOrBlank()) return false
 
         val sanitizedInput = SecurityUtils.sanitizePassword(input)
 
         if (SecurityUtils.isSaltedHash(stored)) {
-            return SecurityUtils.verifyPassword(sanitizedInput, stored)
+            return SecurityUtils.verifyPassword(sanitizedInput, stored).also { valid ->
+                if (valid && passwordLength() == 0) {
+                    appLockPrefs.edit(commit = true) { putInt("password_length", sanitizedInput.length) }
+                }
+            }
         }
 
         if (stored == input || stored == sanitizedInput) {
@@ -54,7 +135,9 @@ class PreferencesRepository(context: Context) {
         return appLockPrefs.getString(KEY_PATTERN, null)
     }
 
-    fun validatePattern(inputPattern: String): Boolean {
+    fun validatePattern(inputPattern: String): Boolean = authenticate { checkPattern(inputPattern) }
+
+    private fun checkPattern(inputPattern: String): Boolean {
         val storedPattern = getPattern()
         if (storedPattern.isNullOrBlank() || inputPattern.isBlank()) return false
         if (SecurityUtils.isSaltedHash(storedPattern)) {
@@ -75,6 +158,7 @@ class PreferencesRepository(context: Context) {
     }
 
     fun setBiometricAuthEnabled(enabled: Boolean) {
+        if (!enabled && isBiometricOnly()) return
         settingsPrefs.edit { putBoolean(KEY_BIOMETRIC_AUTH_ENABLED, enabled) }
     }
 
@@ -179,6 +263,7 @@ class PreferencesRepository(context: Context) {
     }
 
     companion object {
+        private val attemptLock = Any()
         private const val PREFS_NAME_APP_LOCK = "app_lock_prefs"
         private const val PREFS_NAME_SETTINGS = "app_lock_settings"
 

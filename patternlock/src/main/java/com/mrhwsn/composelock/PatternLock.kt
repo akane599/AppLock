@@ -44,6 +44,8 @@ fun PatternLock(
     animationDelay: Long = 100,
     callback: LockCallback
 ) {
+    require(dimension > 0) { "Pattern dimension must be positive" }
+    val currentCallback by rememberUpdatedState(callback)
     val scope = rememberCoroutineScope()
     val connectedDots = remember { mutableStateListOf<Dot>() }
     val currentDotState = remember { mutableStateOf<Dot?>(null) }
@@ -71,7 +73,10 @@ fun PatternLock(
     Box(
         modifier = modifier
             .onSizeChanged { canvasSize = it.toSize() }
-            .pointerInput(Unit) {
+            .pointerInput(dots, sensitivity, dotsSize, animationDuration, animationDelay) {
+                connectedDots.clear()
+                currentDotState.value = null
+                previewEnd.value = Offset.Unspecified
                 awaitPointerEventScope {
                     var currentDot: Dot? = null
                     while (true) {
@@ -88,7 +93,7 @@ fun PatternLock(
                             if (hitDot != null && !connectedDots.any { it.id == hitDot.id }) {
                                 if (currentDot == null) {
                                     connectedDots.add(hitDot)
-                                    callback.onStart(hitDot)
+                                    currentCallback.onStart(hitDot)
                                 } else {
                                     val intermediates = findIntermediateDots(
                                         from = currentDot,
@@ -98,7 +103,7 @@ fun PatternLock(
                                     )
                                     intermediates.forEach { interDot ->
                                         connectedDots.add(interDot)
-                                        callback.onDotConnected(interDot)
+                                        currentCallback.onDotConnected(interDot)
                                         animateDot(
                                             scope,
                                             interDot,
@@ -108,7 +113,7 @@ fun PatternLock(
                                         )
                                     }
                                     connectedDots.add(hitDot)
-                                    callback.onDotConnected(hitDot)
+                                    currentCallback.onDotConnected(hitDot)
                                 }
                                 animateDot(
                                     scope,
@@ -122,7 +127,7 @@ fun PatternLock(
                             currentDotState.value = currentDot
                             previewEnd.value = pos
                         } else if (currentDot != null) {
-                            callback.onResult(connectedDots.toList())
+                            currentCallback.onResult(connectedDots.toList())
                             connectedDots.clear()
                             currentDotState.value = null
                             currentDot = null

@@ -21,6 +21,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Opt-in isolated installation for device regressions on a personal phone.
+            if (providers.gradleProperty("auditBuild").isPresent) applicationIdSuffix = ".audit"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -53,7 +57,12 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.concurrent.futures)
     testImplementation(libs.junit)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
     implementation(project(":appintro"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

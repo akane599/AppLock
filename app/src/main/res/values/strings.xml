@@ -176,7 +176,7 @@ Make sure you have Shizuku installed and enabled via ADB. Tap \'Next\' to grant 
     <string name="settings_screen_backend_implementation_usage_stats_title">Usage Stats</string>
     <string name="settings_screen_backend_implementation_usage_stats_desc">Experimental method, works better on some devices.</string>
     <string name="settings_screen_backend_implementation_shizuku_title">Shizuku</string>
-    <string name="settings_screen_backend_implementation_shizuku_desc">Advanced method, requires Shizuku setup via ADB.</string>
+    <string name="settings_screen_backend_implementation_shizuku_desc">Requires Shizuku setup via ADB. Automatically falls back to enabled Accessibility or permitted Usage Stats when unavailable.</string>
     <string name="settings_screen_backend_implementation_shizuku_unavailable">Shizuku not available or permission denied.</string>
     <string name="settings_screen_backend_implementation_shizuku_experimental_title">Shizuku Experimental Features</string>
     <string name="settings_screen_backend_implementation_shizuku_experimental_desc">Enable experimental features for Shizuku backend (e.g., lock specific activities). May cause instability.</string>
@@ -319,4 +319,16 @@ Make sure you have Shizuku installed and enabled via ADB. Tap \'Next\' to grant 
     <string name="shizuku_protecting">Protecting your apps with Shizuku</string>
     <string name="shizuku_unavailable">Protection unavailable. Check Shizuku and display-over-other-apps permission.</string>
     <string name="shizuku_paused">App protection is turned off</string>
+    <string name="shizuku_fallback_accessibility">Protecting apps with Accessibility. Shizuku will resume automatically.</string>
+    <string name="shizuku_fallback_usage">Protecting apps with Usage Stats. Shizuku will resume automatically.</string>
+    <string name="shizuku_switch_pending">Finishing authentication before switching protection methods.</string>
+    <string name="shizuku_no_fallback">Protection unavailable. Enable Accessibility, or grant usage access and display-over-other-apps permission.</string>
+    <string name="uninstall_policy_failed">Could not change uninstall protection. Check Shizuku access and try again.</string>
+    <string name="usage_protecting">Protecting your apps with Usage Stats</string>
+    <string name="usage_unavailable">Protection unavailable. Grant usage access and display-over-other-apps permission.</string>
+    <string name="biometric_only_title">Use only biometrics for unlocking</string>
+    <string name="biometric_only_description">Unlock with your enrolled biometrics. PIN and pattern fallback are disabled. Keep biometrics enrolled on your device.</string>
+    <string name="biometric_unavailable">Biometrics are unavailable. Check your device biometric settings and try again.</string>
+    <string name="unlock_cooldown">Too many failed attempts. Try again in %1$d:%2$02d.</string>
+    <string name="biometric_only_disable_description">Set a PIN, pattern, or password to turn off biometric-only unlocking.</string>
 </resources>

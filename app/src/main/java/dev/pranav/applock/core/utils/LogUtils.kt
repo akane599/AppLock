@@ -3,13 +3,15 @@ package dev.pranav.applock.core.utils
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -22,8 +24,17 @@ object LogUtils {
     private const val TAG = "LogUtils"
     private const val FILE_NAME = "app_logs.txt"
     private const val SECURITY_LOGS = "audit_log.txt"
+    private const val EXPORT_DIRECTORY = "shared_logs"
+
+    private fun exportDirectory(): File =
+        File(context.cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
+
+    private fun newExportFile(prefix: String): File =
+        File.createTempFile(prefix.removeSuffix(".txt") + "-", ".txt", exportDirectory())
+
     private lateinit var context: Context
-    private var loggingEnabled = false
+    @Volatile private var loggingEnabled = false
+    private val fileMutex = Mutex()
 
     fun initialize(application: Context) {
         context = application
@@ -51,62 +62,62 @@ object LogUtils {
 
     private fun writeAuditLogLine(line: String) {
         logScope.launch {
+            fileMutex.withLock {
+                try {
+                    val file = File(context.filesDir, SECURITY_LOGS)
+                    if (!file.exists()) {
+                        file.createNewFile()
+                    }
+                    file.appendText(line)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing audit log", e)
+                }
+            }
+        }
+    }
+
+    suspend fun exportAuditLogs(): Uri? = withContext(Dispatchers.IO) {
+        fileMutex.withLock {
             try {
                 val file = File(context.filesDir, SECURITY_LOGS)
-                if (!file.exists()) {
-                    file.createNewFile()
-                }
-                file.appendText(line)
+                if (file.exists()) {
+                    val snapshot = newExportFile(SECURITY_LOGS)
+                    file.copyTo(snapshot, overwrite = true)
+                    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", snapshot)
+                } else null
             } catch (e: Exception) {
-                Log.e(TAG, "Error writing audit log", e)
+                Log.e(TAG, "Error exporting audit logs", e)
+                null
             }
         }
     }
 
-    fun exportAuditLogs(): Uri? {
-        val file = File(context.filesDir, SECURITY_LOGS)
-        return if (file.exists()) {
-            FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-        } else {
-            null
-        }
-    }
+    suspend fun exportLogs(): Uri? = withContext(Dispatchers.IO) {
+        fileMutex.withLock {
+            try {
+                val file = newExportFile(FILE_NAME)
+                val process = Runtime.getRuntime().exec("logcat -d")
 
-    fun exportLogs(): Uri? {
-        val file = File(context.cacheDir, FILE_NAME)
-        try {
-            if (file.exists()) {
-                file.delete()
-            }
-            file.createNewFile()
-
-            val process = Runtime.getRuntime().exec("logcat -d")
-
-            process.inputStream.bufferedReader().use { reader ->
-                file.writer().use { writer ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        reader.transferTo(writer)
-                    } else {
-                        reader.forEachLine { line ->
-                            writer.write(line + "\n")
-                        }
+                try {
+                    process.inputStream.bufferedReader().use { reader ->
+                        file.writer().use { writer -> reader.copyTo(writer) }
                     }
+                    check(process.waitFor() == 0) { "Logcat export failed" }
+                } finally {
+                    process.destroy()
                 }
+
+
+                FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error exporting logs", e)
+                null
             }
-
-            return FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error exporting logs", e)
-            return null
         }
     }
 
@@ -116,20 +127,20 @@ object LogUtils {
      */
     fun clearAllLogs() {
         logScope.launch {
-            try {
-                val securityLogFile = File(context.filesDir, SECURITY_LOGS)
-                if (securityLogFile.exists()) {
-                    securityLogFile.delete()
-                    Log.d(TAG, "Cleared security logs")
-                }
+            fileMutex.withLock {
+                try {
+                    val securityLogFile = File(context.filesDir, SECURITY_LOGS)
+                    if (securityLogFile.exists()) {
+                        securityLogFile.delete()
+                        Log.d(TAG, "Cleared security logs")
+                    }
 
-                val appLogFile = File(context.cacheDir, FILE_NAME)
-                if (appLogFile.exists()) {
-                    appLogFile.delete()
-                    Log.d(TAG, "Cleared app logs")
+                    exportDirectory().listFiles()?.forEach { it.delete() }
+                    // Remove exports from versions before snapshot isolation.
+                    File(context.cacheDir, FILE_NAME).delete()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error clearing logs", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error clearing logs", e)
             }
         }
     }
@@ -141,67 +152,51 @@ object LogUtils {
      */
     fun purgeOldLogs() {
         logScope.launch {
-            purgeOldLogsFromFile(File(context.filesDir, SECURITY_LOGS), "audit")
-            purgeOldLogsFromFile(File(context.cacheDir, FILE_NAME), "app")
+            fileMutex.withLock {
+                purgeOldLogsFromFile(File(context.filesDir, SECURITY_LOGS), "audit")
+                purgeOldLogsFromFile(File(context.cacheDir, FILE_NAME), "app")
+                exportDirectory().listFiles()?.forEach { purgeOldLogsFromFile(it, "app") }
+            }
         }
     }
 
     private fun purgeOldLogsFromFile(logFile: File, logType: String) {
+        if (!logFile.exists()) return
+        val cutoff = Instant.now().minus(3, ChronoUnit.DAYS)
+        // Exported snapshots (including logcat) have no guaranteed timestamp format.
+        if (logType != "audit") {
+            if (logFile.lastModified() < cutoff.toEpochMilli()) logFile.delete()
+            return
+        }
+        var temporary: File? = null
         try {
-            if (!logFile.exists()) {
-                return
-            }
-
-            val tempDir = context.cacheDir
-            val tempLogFile = File(tempDir, logFile.name + ".processing")
-            val backupFile = File(tempDir, logFile.name + ".backup")
-
-            try {
-                logFile.copyTo(backupFile, overwrite = true)
-
-                val threeDaysAgo = Instant.now().minus(7, ChronoUnit.DAYS)
-                var purgedCount = 0
-                var keptCount = 0
-
-                backupFile.bufferedReader().use { reader ->
-                    tempLogFile.bufferedWriter().use { writer ->
-                        reader.forEachLine { line ->
-                            try {
-                                val timestampStr = line.substringBefore(" ")
-                                val timestamp = Instant.parse(timestampStr)
-
-                                if (timestamp.isAfter(threeDaysAgo)) {
-                                    writer.write(line)
-                                    writer.newLine()
-                                    keptCount++
-                                } else {
-                                    purgedCount++
-                                }
-                            } catch (_: Exception) {
-                                writer.write(line)
-                                writer.newLine()
-                                keptCount++
-                            }
+            temporary = File.createTempFile("audit-retention-", ".tmp", logFile.parentFile)
+            var keepRecord = true
+            var keptLines = 0
+            logFile.bufferedReader().use { reader ->
+                temporary.bufferedWriter().use { writer ->
+                    reader.forEachLine { line ->
+                        val timestamp = runCatching { Instant.parse(line.substringBefore(' ')) }.getOrNull()
+                        if (timestamp != null) keepRecord = !timestamp.isBefore(cutoff)
+                        // Stack traces and multiline messages belong to their preceding entry.
+                        if (keepRecord) {
+                            writer.write(line)
+                            writer.newLine()
+                            keptLines++
                         }
                     }
                 }
-
-                if (keptCount == 0) {
-                    logFile.delete()
-                    tempLogFile.delete()
-                    Log.d(TAG, "Deleted $logType log file - all entries were older than 3 days")
-                } else if (purgedCount > 0) {
-                    tempLogFile.copyTo(logFile, overwrite = true)
-                    tempLogFile.delete()
-                    Log.d(TAG, "Purged $purgedCount old $logType log entries")
-                } else {
-                    tempLogFile.delete()
-                }
-            } finally {
-                backupFile.delete()
+            }
+            if (keptLines == 0) {
+                logFile.delete()
+            } else {
+                java.nio.file.Files.move(temporary.toPath(), logFile.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error purging old $logType logs", e)
+        } finally {
+            temporary?.delete()
         }
     }
 }

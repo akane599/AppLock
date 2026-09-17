@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import dev.pranav.applock.R
+import dev.pranav.applock.core.utils.SecurityUtils
 import dev.pranav.applock.core.ui.shapes
 import dev.pranav.applock.core.utils.appLockRepository
 import dev.pranav.applock.core.utils.vibrate
@@ -91,11 +92,19 @@ open class PasswordOverlayActivity : FragmentActivity() {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     promptShowing = false
-                    // Cancellation leaves the opaque password screen in place.
+                    if (errorCode == BiometricPrompt.ERROR_LOCKOUT ||
+                        errorCode == BiometricPrompt.ERROR_LOCKOUT_PERMANENT) {
+                        appLockRepository.recordBiometricLockout()
+                    }
+                    android.widget.Toast.makeText(this@PasswordOverlayActivity, errString, android.widget.Toast.LENGTH_SHORT).show()
+                }
+                override fun onAuthenticationFailed() {
+                    appLockRepository.recordAuthenticationFailure()
+                    if (appLockRepository.cooldownRemainingMillis() > 0L) biometricPrompt.cancelAuthentication()
                 }
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     promptShowing = false
-                    completeAuthentication()
+                    if (appLockRepository.recordBiometricSuccess()) completeAuthentication()
                 }
             })
         setContent {
@@ -166,11 +175,12 @@ open class PasswordOverlayActivity : FragmentActivity() {
     }
 
     private fun triggerBiometricPrompt() {
-        if (completed || promptShowing || !appLockRepository.isBiometricAuthEnabled()) return
+        if (completed || promptShowing || !appLockRepository.isBiometricAuthEnabled() ||
+            appLockRepository.cooldownRemainingMillis() > 0L) return
         val prompt = BiometricPrompt.PromptInfo.Builder()
             .setTitle(getString(R.string.unlock_app_title, appName))
             .setSubtitle(getString(R.string.confirm_biometric_subtitle))
-            .setNegativeButtonText(getString(R.string.use_pin_button))
+            .setNegativeButtonText(getString(R.string.cancel_button))
             .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
             .setConfirmationRequired(false)
             .build()
@@ -184,7 +194,7 @@ open class PasswordOverlayActivity : FragmentActivity() {
     }
 
     private fun completeAuthentication() {
-        if (completed) return
+        if (completed || appLockRepository.cooldownRemainingMillis() > 0L) return
         if (!AppLockManager.sessions.authenticate(token)) {
             exitToHome()
             return
@@ -247,6 +257,7 @@ fun PinPasswordOverlayScreen(
     onPinAttempt: ((pin: String) -> Boolean)? = null
 ) {
     val appLockRepository = LocalContext.current.appLockRepository()
+    if (AuthenticationGate(modifier, onBiometricAuth, onClose, showCloseButton)) return
     val windowInfo = LocalWindowInfo.current
 
     val screenWidth = windowInfo.containerSize.width
@@ -346,8 +357,16 @@ fun PinPasswordOverlayScreen(
                             onPasswordChange = {
                                 showError = false
 
-                                if (appLockRepository.isAutoUnlockEnabled()) {
-                                    onPinAttempt?.invoke(passwordState.value)
+                                if (appLockRepository.shouldAutoSubmitPin(passwordState.value)) {
+                                    val valid = if (fromMainActivity) {
+                                        appLockRepository.validatePassword(passwordState.value).also {
+                                            if (it) onAuthSuccess()
+                                        }
+                                    } else onPinAttempt?.invoke(passwordState.value) == true
+                                    if (!valid) {
+                                        passwordState.value = ""
+                                        showError = true
+                                    }
                                 }
                             },
                             onPinIncorrect = { showError = true }
@@ -415,8 +434,16 @@ fun PinPasswordOverlayScreen(
                         onPasswordChange = {
                             showError = false
 
-                            if (appLockRepository.isAutoUnlockEnabled()) {
-                                onPinAttempt?.invoke(passwordState.value)
+                            if (appLockRepository.shouldAutoSubmitPin(passwordState.value)) {
+                                val valid = if (fromMainActivity) {
+                                    appLockRepository.validatePassword(passwordState.value).also {
+                                        if (it) onAuthSuccess()
+                                    }
+                                } else onPinAttempt?.invoke(passwordState.value) == true
+                                if (!valid) {
+                                    passwordState.value = ""
+                                    showError = true
+                                }
                             }
                         },
                         onPinIncorrect = { showError = true }
@@ -755,7 +782,7 @@ private fun addDigitToPassword(
     digit: String,
     onPasswordChange: () -> Unit
 ) {
-    passwordState.value += digit
+    passwordState.value = (passwordState.value + digit).take(SecurityUtils.MAX_PASSWORD_LENGTH)
     onPasswordChange()
 }
 
@@ -777,7 +804,6 @@ private fun handleKeypadSpecialButtonLogic(
         "backspace" -> {
             if (passwordState.value.isNotEmpty()) {
                 passwordState.value = passwordState.value.dropLast(1)
-                onPasswordChange()
             }
         }
 

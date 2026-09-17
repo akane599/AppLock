@@ -19,7 +19,7 @@ object AppLockServiceStarter {
         repository: dev.pranav.applock.data.repository.AppLockRepository
     ) {
         if (repository.isAntiUninstallEnabled()) {
-            startService(context, AppLockAccessibilityService::class.java)
+            AppLockAccessibilityService.refreshBackend()
         }
 
         when (repository.getBackendImplementation()) {
@@ -28,7 +28,7 @@ object AppLockServiceStarter {
             }
 
             BackendImplementation.ACCESSIBILITY -> {
-                startService(context, AppLockAccessibilityService::class.java)
+                AppLockAccessibilityService.refreshBackend()
             }
 
             BackendImplementation.USAGE_STATS -> {

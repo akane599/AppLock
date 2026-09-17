@@ -1,7 +1,6 @@
 package dev.pranav.applock.core.broadcast
 
 import android.app.admin.DeviceAdminReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
@@ -18,9 +17,8 @@ class DeviceAdmin : DeviceAdminReceiver() {
             putBoolean("anti_uninstall", true)
         }
 
-        val component = ComponentName(context, DeviceAdmin::class.java)
-
-        getManager(context).setUninstallBlocked(component, context.packageName, true)
+        // Ordinary device admins cannot call the owner-only setUninstallBlocked API.
+        // Android already requires deactivation before uninstalling an active admin.
     }
 
     override fun onDisabled(context: Context, intent: android.content.Intent) {

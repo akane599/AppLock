@@ -90,11 +90,16 @@ class LockSessionState(private val now: () -> Long) {
     }
 
     @Synchronized
-    fun resetUnlocks() {
+    fun clearGrants() {
         unlockedPackage = ""
         foregroundPackage = ""
         excludedSession = ""
         unlockTimes.clear()
+    }
+
+    @Synchronized
+    fun resetUnlocks() {
+        clearGrants()
         // A password entered before screen-off must not authenticate after screen-off.
         challenge = null
     }
