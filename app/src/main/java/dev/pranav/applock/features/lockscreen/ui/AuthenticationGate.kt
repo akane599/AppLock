@@ -1,6 +1,11 @@
 package dev.pranav.applock.features.lockscreen.ui
 
+import android.app.Activity
+import android.app.KeyguardManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.LocalActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -9,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -68,15 +74,36 @@ fun AuthenticationGate(
 @Composable
 fun rememberBiometricAuthentication(
     enableBiometricOnly: Boolean = false,
+    allowDeviceCredential: Boolean = false,
     onSuccess: () -> Unit
 ): () -> Unit {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val activity = LocalActivity.current as? FragmentActivity
     val repository = context.appLockRepository()
     val success by rememberUpdatedState(onSuccess)
     val enableOnly by rememberUpdatedState(enableBiometricOnly)
+    val recovery by rememberUpdatedState(allowDeviceCredential)
     var showing by remember { mutableStateOf(false) }
     var active by remember { mutableStateOf(true) }
+    val completeAuthentication = {
+        if (active) {
+            showing = false
+            if (repository.cooldownRemainingMillis() == 0L) {
+                if (enableOnly) repository.setBiometricOnly(true)
+                val accepted = if (recovery) repository.recordDeviceCredentialSuccess()
+                    else repository.recordBiometricSuccess()
+                if (accepted) success()
+            }
+        }
+    }
+    val complete by rememberUpdatedState(completeAuthentication)
+    val credentialLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) complete()
+        else showing = false
+    }
     val prompt = remember(activity) {
         activity?.let {
             BiometricPrompt(it, ContextCompat.getMainExecutor(context),
@@ -95,11 +122,7 @@ fun rememberBiometricAuthentication(
                         repository.recordAuthenticationFailure()
                     }
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        if (!active) return
-                        showing = false
-                        if (repository.cooldownRemainingMillis() > 0L) return
-                        if (enableOnly) repository.setBiometricOnly(true)
-                        if (repository.recordBiometricSuccess()) success()
+                        complete()
                     }
                 })
         }
@@ -120,25 +143,50 @@ fun rememberBiometricAuthentication(
             prompt?.cancelAuthentication()
         }
     }
-    return {
-        if (active && !showing && repository.cooldownRemainingMillis() == 0L && prompt != null &&
-            (enableOnly || repository.isBiometricAuthEnabled())) {
-            val available = BiometricManager.from(context).canAuthenticate(
-                BiometricManager.Authenticators.BIOMETRIC_WEAK
-            ) == BiometricManager.BIOMETRIC_SUCCESS
-            if (available) {
-                showing = true
-                try {
-                    prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
-                        .setTitle(context.getString(R.string.biometric_authentication_cd))
-                        .setNegativeButtonText(context.getString(R.string.cancel_button))
-                        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
-                        .build())
-                } catch (_: RuntimeException) {
-                    showing = false
-                    Toast.makeText(context, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
-                }
-            } else Toast.makeText(context, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
+    return authenticate@{
+        if (!active || showing || repository.cooldownRemainingMillis() > 0L || prompt == null) {
+            return@authenticate
+        }
+        if (allowDeviceCredential && repository.isBiometricOnly()) return@authenticate
+        if (!allowDeviceCredential && !enableBiometricOnly && !repository.isBiometricAuthEnabled()) {
+            return@authenticate
+        }
+        try {
+            if (allowDeviceCredential && Build.VERSION.SDK_INT in 28..29) {
+                // AndroidX rejects STRONG | DEVICE_CREDENTIAL on these versions.
+                // Keep the strength requirement by using the system credential screen.
+                val keyguard = context.getSystemService(KeyguardManager::class.java)
+                @Suppress("DEPRECATION")
+                val intent = keyguard.createConfirmDeviceCredentialIntent(
+                    resources.getString(R.string.authenticate_to_reset_pin_title),
+                    resources.getString(R.string.use_device_pin_pattern_password_subtitle)
+                )
+                if (intent != null) {
+                    showing = true
+                    credentialLauncher.launch(intent)
+                } else Toast.makeText(context, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
+            } else {
+                val authenticators = if (allowDeviceCredential) {
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                } else BiometricManager.Authenticators.BIOMETRIC_WEAK
+                val available = BiometricManager.from(context).canAuthenticate(authenticators) ==
+                    BiometricManager.BIOMETRIC_SUCCESS
+                if (available) {
+                    val builder = BiometricPrompt.PromptInfo.Builder()
+                        .setTitle(resources.getString(if (allowDeviceCredential)
+                            R.string.authenticate_to_reset_pin_title else R.string.biometric_authentication_cd))
+                        .setAllowedAuthenticators(authenticators)
+                    if (allowDeviceCredential) {
+                        builder.setSubtitle(resources.getString(R.string.use_device_pin_pattern_password_subtitle))
+                    } else builder.setNegativeButtonText(resources.getString(R.string.cancel_button))
+                    showing = true
+                    prompt.authenticate(builder.build())
+                } else Toast.makeText(context, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
+            }
+        } catch (_: RuntimeException) {
+            showing = false
+            Toast.makeText(context, R.string.biometric_unavailable, Toast.LENGTH_LONG).show()
         }
     }
 }

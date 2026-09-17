@@ -5,7 +5,7 @@ set -eu
 cd "$(dirname "$0")/.."
 audit_sdk=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}
 : "${audit_sdk:?Set ANDROID_HOME or ANDROID_SDK_ROOT}"
-audit_build_tools=${ANDROID_BUILD_TOOLS_VERSION:-37.0.0}
+audit_build_tools=${ANDROID_BUILD_TOOLS_VERSION:-36.0.0}
 audit_platform=$audit_sdk/platforms/android-37
 if [ ! -f "$audit_platform/android.jar" ]; then audit_platform=$audit_sdk/platforms/android-37.0; fi
 audit_apk=${1:-app/build/outputs/apk/debug/app-debug.apk}

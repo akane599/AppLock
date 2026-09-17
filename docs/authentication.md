@@ -13,7 +13,9 @@ All protected apps, AppLock itself, and admin removal share a failure counter.
 Five incorrect PINs, passwords, patterns, or biometric matches block all unlock
 methods for 5 minutes. Further groups of five failures produce 10-, 20-, 40-,
 then 60-minute cooldowns. Successful authentication resets the escalation.
-Android biometric lockouts also trigger an AppLock cooldown. Cancelling a prompt
+Android biometric lockouts also trigger an AppLock cooldown, including biometric
+attempts in credential recovery. Successful system credential recovery resets the
+same counter and is rejected during cooldowns or in biometric-only mode. Cancelling a prompt
 or encountering unavailable hardware does not count as an incorrect match.
 
 The unlock screen displays the remaining time. Counters survive process restarts;
@@ -31,3 +33,7 @@ learn this length after their first successful manual PIN submission.
   switching back to credentials, admin removal, and unavailable biometrics.
 - Check five failures across multiple apps and methods, countdown expiry, process
   restart, reboot, and PIN auto-unlock in both orientations.
+
+Credential recovery uses strong biometrics or the system device credential. On
+Android 9–10 it opens the system credential confirmation screen because AndroidX
+does not support the combined strong-biometric/device-credential prompt there.

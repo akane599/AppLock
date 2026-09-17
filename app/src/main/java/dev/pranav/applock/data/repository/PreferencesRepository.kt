@@ -80,6 +80,13 @@ class PreferencesRepository(context: Context) {
         true
     }
 
+    // Called only after the system confirms the device credential or a strong biometric.
+    fun recordDeviceCredentialSuccess(): Boolean = synchronized(attemptLock) {
+        if (isBiometricOnly() || cooldownRemainingMillis() > 0L) return@synchronized false
+        resetAttempts()
+        true
+    }
+
     private fun resetAttempts() {
         saveAttemptState(attemptState().succeeded(android.os.SystemClock.elapsedRealtime()))
     }

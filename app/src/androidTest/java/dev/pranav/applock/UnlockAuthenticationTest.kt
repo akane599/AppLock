@@ -72,4 +72,24 @@ class UnlockAuthenticationTest {
         assertTrue(repository.validatePassword("654321"))
     }
 
+    @Test fun recoverySuccessResetsFailuresEvenWhenOptionalBiometricsAreDisabled() {
+        val repository = PreferencesRepository(context)
+        repeat(4) { repository.recordAuthenticationFailure() }
+        assertFalse(repository.isBiometricAuthEnabled())
+        assertTrue(repository.recordDeviceCredentialSuccess())
+        repeat(4) { repository.recordAuthenticationFailure() }
+        assertEquals(0L, repository.cooldownRemainingMillis())
+    }
+
+    @Test fun recoveryCannotBypassCooldownOrBiometricOnlyMode() {
+        val repository = PreferencesRepository(context)
+        repeat(5) { repository.recordAuthenticationFailure() }
+        assertFalse(repository.recordDeviceCredentialSuccess())
+        assertTrue(repository.cooldownRemainingMillis() > 0L)
+        clearPreferences()
+        repository.setBiometricOnly(true)
+        assertFalse(repository.recordDeviceCredentialSuccess())
+        assertTrue(repository.isBiometricOnly())
+    }
+
 }

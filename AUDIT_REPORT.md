@@ -1,5 +1,8 @@
 # Repository audit
 
+Current audit complete with device-verification limits: see **Current pass — 2026-09-17** below. Earlier dated results
+are preserved as history and do not describe verification on this machine.
+
 ## Status and baseline
 
 2026-09-16; started at `8f0a194` with a clean working tree. Existing `AGENTS.md`
@@ -187,3 +190,104 @@ production-signing requirement are listed under limits. The user subsequently au
 all-branch/manual GitHub workflow now explicitly assembles both APK variants and fails
 on missing artifacts. Git history records the commit; no app release was published.
 `AGENTS.md` remains unchanged.
+
+## Current pass — 2026-09-17
+
+Started at `e61e03e` with a clean working tree. Earlier results above are historical,
+not verification in this environment. JDK 17 and `/home/dev/android-sdk` are available.
+No device authorization from historical audit prose was assumed for this pass.
+Source review/fixes and available build validation are complete. A19–A23 are fixed;
+instrumented execution and the runtime probe remain blocked as described below.
+
+### Coverage checkpoint
+
+- [x] Authentication, biometric-only mode, cooldowns, credential setup and navigation (A19–A21)
+- [x] Services, sessions, permissions, fallback, receivers, Shizuku integration
+- [x] Repositories, app lists, settings, admin protection, logging and sharing
+- [x] Onboarding/pattern libraries and tests
+- [x] Hidden API used task/package signatures, compile-only packaging boundary; unused
+      framework declaration families reviewed structurally, not exhaustively for runtime semantics
+- [x] Manifest exports/permissions, backup/provider rules, XML/localization/theme/icon resources;
+      raster assets and store changelogs inventoried (no screenshot visual audit)
+- [x] Gradle modules/catalog/wrapper, CI, shell/Java probe, README and historical audit docs
+
+### Findings
+
+Historical IDs A01–A18 preserved.
+
+| ID | Severity | Evidence / affected files | Status / resolution |
+| --- | --- | --- | --- |
+| A19 | Medium | `AlphanumericSetPasswordScreen.kt` starts `requestFocus()` before the cooldown gate's early return; entering during a cooldown composes no associated text field. Compose throws for unattached focus requesters. | Fixed focus effect ordering; entry/expiry UI regression compiles; execution blocked by unavailable device. |
+| A20 | Medium | All three setup screens build `BIOMETRIC_STRONG | DEVICE_CREDENTIAL` unconditionally; AndroidX rejects it on API 28–29 before authentication. | Fixed via shared recovery helper and system credential confirmation on API 28–29; compiled; device validation unavailable. |
+| A21 | Medium | Recovery prompts in all three setup screens only implement success: failed biometric matches/lockouts never reach shared counters, success does not reset escalation, and callbacks do not recheck cooldown or screen disposal. | Fixed with shared lifecycle-aware callbacks, failure/lockout accounting and guarded recovery success; two repository regressions added. |
+| A22 | Medium | `tools/DeviceLockingProbe.java` constructs `ContextWrapper(null)`; the current repository constructor calls `getApplicationContext()`, which dereferences that null base, and cooldown checks need a content resolver. | Fixed synthetic context to delegate Android services to the shell system context; Java/D8 compilation passed; runtime execution blocked. |
+| A23 | Low | `README.md` names “Android CI” and all-branch pushes, but `.github/workflows/android.yml` names “Build APK” and filters pushes to `main`. Probe defaults to build-tools 37 although this build installs 36.0.0. | Corrected workflow instructions and probe default; explicit tool-version override retained. |
+
+API evidence: [AndroidX prompt configuration](https://developer.android.com/reference/androidx/biometric/BiometricPrompt.PromptInfo.Builder) and [Compose focus attachment](https://developer.android.com/codelabs/large-screens/keyboard-focus-management-in-compose).
+
+### Validation
+
+- Initial `./gradlew :app:testDebugUnitTest :appintro:testDebugUnitTest :app:lintDebug --max-workers=2`: completed; Gradle and SDK platform 37 revision 2 installed. Source fixes were made before app compilation, so this run is not a pristine pre-fix baseline.
+- Attempted the available API 36 emulator in read-only/software mode (`-accel off`);
+  `/dev/kvm` is absent. It remained ADB-offline for over 14 minutes, including an
+  ADB reconnect attempt. Stopped this audit-owned emulator to release memory.
+  Instrumented execution and the device probe are blocked by the unavailable runtime.
+- A19–A21 implementation and three regression tests added; app Kotlin compilation passed.
+- XML parse of all 20 tracked XML files, `sh -n tools/check-device-locking.sh`,
+  `git diff --check`, and `javac` + D8 compilation of the repaired probe passed.
+- JVM results: **39 app + 1 onboarding tests passed**, zero failures/errors. Initial lint found five Compose resource-access errors in the
+  authentication helper; corrected those calls to use `LocalResources` (no suppressions).
+  The final lint rerun passed.
+- `./gradlew -PauditBuild :app:assembleDebug :app:assembleDebugAndroidTest
+  :patternlock:assembleDebugAndroidTest :appintro:assembleDebugAndroidTest
+  --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process`: **passed**.
+  All instrumented sources (including the three new regressions) compile and test
+  APKs are produced. They were not executed: no usable device/emulator.
+- `./gradlew :app:testDebugUnitTest :appintro:testDebugUnitTest lintDebug
+  :app:assembleDebug :app:assembleRelease --max-workers=1
+  -Pkotlin.compiler.execution.strategy=in-process`: **BUILD SUCCESSFUL**.
+- Final normal-ID run: **39 app + 1 onboarding JVM tests passed**; `lintDebug`
+  passed all four modules with **zero errors** (app 94 warnings/2 hints,
+  onboarding 1 warning, hidden-api 3 warnings, pattern library clean).
+- Normal debug APK built and signature verified with `apksigner`; `aapt` confirms
+  `dev.pranav.applock`, minimum API 26, target API 37 and debuggable=true.
+  SHA-256: `6fc18bd0a13b0d561ab98bdf2155f3335f05598c83962084fb28ef3e13f0bd94`.
+- Release APK built with R8 code/resource shrinking. `apksigner verify --verbose`
+  passed for both APKs; `aapt dump badging` confirms the normal application ID for
+  both, debug=true only for debug, and a non-debuggable release. Final diff whitespace
+  check passed. No tests were weakened and no lint errors were suppressed.
+
+### Remaining work / next action
+
+No remaining source fixes or local build checks. Runtime device regressions and probe
+execution are blocked as described below. Next action on an available test device:
+run `./gradlew -PauditBuild :app:connectedDebugAndroidTest
+:patternlock:connectedDebugAndroidTest :appintro:connectedDebugAndroidTest`, then rebuild
+normal-ID debug and run `sh tools/check-device-locking.sh`. Verify API 28–29 recovery
+and hardware-biometric callbacks manually. All repository areas are accounted for above.
+
+### Limitations and independent opportunities
+
+- No physical device; the software emulator failed to become usable. Biometric sensor interactions,
+  API 28–29 recovery, OEM admin screens, multiwindow and daemon reconnection require
+  device verification; no current claim of those flows passing. In particular, verify
+  that returning from external system credential confirmation works with MainActivity's
+  resume authentication; the unavailable API 28–29 runtime prevents an end-to-end conclusion.
+- Unused framework declarations and store screenshots are not fully semantically/visually
+  audited. No third-party dependency advisory scan or external-link availability audit.
+- Independent opportunities (not implemented): stronger versioned credential KDF;
+  Arabic completion (250 default keys currently fall back); app-list/cache profiling;
+  fewer unused framework declarations/permissions; production signing. Release retains
+  the repository's existing debug-key signing configuration.
+- `AGENTS.md` says onboarding test dependencies are absent, but they are configured.
+  Repository instructions remain unchanged.
+
+### Current artifacts
+
+Both APKs use the normal application ID. Release is minified and non-debuggable;
+both use the repository's existing debug signing configuration.
+
+| Variant | Path | SHA-256 |
+| --- | --- | --- |
+| Debug | `app/build/outputs/apk/debug/app-debug.apk` | `6fc18bd0a13b0d561ab98bdf2155f3335f05598c83962084fb28ef3e13f0bd94` |
+| Release | `app/build/outputs/apk/release/app-release.apk` | `31c366c0eaf8ea85023ab27a0a134553582dd816390bdc0ebd231933fb6fa869` |
