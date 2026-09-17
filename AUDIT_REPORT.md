@@ -304,4 +304,10 @@ User requested publication of the audit fixes and repair of the APK workflow.
 Validation: actionlint 1.7.12 and `git diff --check` pass. Explicit SDK package IDs
 match the installed packages used by the successful local builds above. Gradle worker
 count is capped at two with in-process Kotlin compilation for predictable CI memory
-usage. GitHub execution and artifact verification are pending the PR run.
+usage. [PR #4](https://github.com/akane599/AppLock/pull/4) contains the audit and CI fixes.
+[GitHub run 35175228317](https://github.com/akane599/AppLock/actions/runs/35175228317)
+at commit `9e1e211` **passed**: SDK setup, JVM tests, all-module debug lint, both APK
+builds and both artifact uploads (11m26s). Downloaded `app-debug` and `app-release`;
+both pass `apksigner verify --verbose`. `aapt` confirms the normal application ID,
+minimum API 26, target API 37, and debuggable=true only for debug. Release remains
+signed with the existing debug-key configuration. No CI repair work remains.
