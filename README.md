@@ -75,8 +75,10 @@ as [Github Releases](https://github.com/PranavPurwar/AppLock/releases/latest).
     <img src="https://gitlab.com/IzzyOnDroid/repo/-/raw/master/assets/IzzyOnDroid.png" alt="IzzyOnDroid" height="100"/>
   </a>
 
-Beta Builds can be
-found [here](https://github.com/PranavPurwar/AppLock/raw/refs/heads/master/app/debug/app-debug.apk)
+To download a repository build, open **Actions → Build APK**, select a successful run,
+and download the `app-debug` or `app-release` artifact. Maintainers can start a build with
+**Run workflow**. Artifacts are retained for 14 days. The release variant is currently
+signed with the repository's debug signing configuration and is not a production release.
 
 <br/>
 
