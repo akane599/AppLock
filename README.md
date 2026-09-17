@@ -178,8 +178,8 @@ before distributing a production build. See [the repository audit](AUDIT_REPORT.
 
 ### GitHub Actions APK builds
 
-The `Android CI` workflow builds debug and release APKs on pushes to any branch and
-on pull requests. To build manually, open **Actions → Android CI → Run workflow**,
+The `Build APK` workflow builds debug and release APKs on pushes to `master` or `main` and
+on pull requests. To build manually, open **Actions → Build APK → Run workflow**,
 choose the branch, and run it. The selected branch must contain the workflow file.
 Download `app-debug` and `app-release` from the completed run's **Artifacts** section.
 The workflow runs JVM tests and lint before building; release APKs currently use debug

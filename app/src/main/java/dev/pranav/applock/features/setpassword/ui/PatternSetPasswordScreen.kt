@@ -4,8 +4,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.biometric.BiometricManager
-import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,7 +35,6 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.mrhwsn.composelock.Dot
 import com.mrhwsn.composelock.LockCallback
@@ -94,31 +91,15 @@ fun PatternSetPasswordScreen(
         }
     }
 
-    val fragmentActivity = LocalActivity.current as? androidx.fragment.app.FragmentActivity
-
-    fun launchDeviceCredentialAuth() {
-        if (fragmentActivity == null) return
-        val executor = ContextCompat.getMainExecutor(context)
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle(resources.getString(R.string.authenticate_to_reset_pin_title))
-            .setSubtitle(resources.getString(R.string.use_device_pin_pattern_password_subtitle))
-            .setAllowedAuthenticators(
-                BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
-            )
-            .build()
-        val biometricPrompt = BiometricPrompt(
-            fragmentActivity, executor,
-            object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                    super.onAuthenticationSucceeded(result)
-                    isVerifyOldPasswordMode = false
-                    patternState = ""
-                    confirmPatternState = ""
-                    showInvalidOldPasswordError = false
-                }
-            })
-        biometricPrompt.authenticate(promptInfo)
-    }
+    val launchDeviceCredentialAuth =
+        dev.pranav.applock.features.lockscreen.ui.rememberBiometricAuthentication(
+            allowDeviceCredential = true
+        ) {
+            isVerifyOldPasswordMode = false
+            patternState = ""
+            confirmPatternState = ""
+            showInvalidOldPasswordError = false
+        }
 
     fun switchToPinMethod() {
         navController.navigate(Screen.SetPassword.route) {

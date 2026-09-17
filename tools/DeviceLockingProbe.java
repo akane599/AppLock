@@ -31,10 +31,18 @@ public final class DeviceLockingProbe {
     }
 
     private static void verifyLegacyCredentials(String preferencesPath) throws Exception {
+        // PreferencesRepository now reads BOOT_COUNT through the application resolver.
+        // Keep only preferences synthetic; delegate framework services to a real shell context.
+        if (android.os.Looper.myLooper() == null) android.os.Looper.prepareMainLooper();
+        Class<?> activityThread = Class.forName("android.app.ActivityThread");
+        Object thread = activityThread.getMethod("systemMain").invoke(null);
+        android.content.Context systemContext = (android.content.Context)
+            activityThread.getMethod("getSystemContext").invoke(thread);
         java.io.File directory = new java.io.File(preferencesPath);
         if (!directory.mkdir()) throw new IllegalStateException("Use a fresh probe preferences directory");
         java.util.Map<String, android.content.SharedPreferences> preferences = new java.util.HashMap<>();
-        android.content.Context context = new android.content.ContextWrapper(null) {
+        android.content.Context context = new android.content.ContextWrapper(systemContext) {
+            @Override public android.content.Context getApplicationContext() { return this; }
             @Override public android.content.SharedPreferences getSharedPreferences(String name, int mode) {
                 return preferences.computeIfAbsent(name, key -> {
                     try {

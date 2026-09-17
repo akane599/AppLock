@@ -64,6 +64,7 @@ class AppLockRepository(private val context: Context) {
     fun recordBiometricLockout() = preferencesRepository.recordBiometricLockout()
     fun recordAuthenticationFailure() = preferencesRepository.recordAuthenticationFailure()
     fun recordBiometricSuccess(): Boolean = preferencesRepository.recordBiometricSuccess()
+    fun recordDeviceCredentialSuccess(): Boolean = preferencesRepository.recordDeviceCredentialSuccess()
     fun shouldAutoSubmitPin(input: String): Boolean = isAutoUnlockEnabled() &&
         preferencesRepository.passwordLength() >= 4 && input.length == preferencesRepository.passwordLength()
 
