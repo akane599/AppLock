@@ -291,3 +291,17 @@ both use the repository's existing debug signing configuration.
 | --- | --- | --- |
 | Debug | `app/build/outputs/apk/debug/app-debug.apk` | `6fc18bd0a13b0d561ab98bdf2155f3335f05598c83962084fb28ef3e13f0bd94` |
 | Release | `app/build/outputs/apk/release/app-release.apk` | `31c366c0eaf8ea85023ab27a0a134553582dd816390bdc0ebd231933fb6fa869` |
+
+## CI follow-up — 2026-09-17
+
+User requested publication of the audit fixes and repair of the APK workflow.
+
+| ID | Severity | Evidence / affected files | Status / resolution |
+| --- | --- | --- | --- |
+| A24 | High | [Failed run 35169774116](https://github.com/akane599/AppLock/actions/runs/35169774116) stops in Android SDK setup: `Failed to find package 'tools'`. The setup action defaults to the removed `tools` package, preventing every build. | Explicitly install `platform-tools`, `platforms;android-37.0` and `build-tools;36.0.0`; retain JVM tests, lint and both APK uploads. |
+| A25 | Medium | GitHub's default branch is `master`, but the workflow only listens for pushes to `main`. | Enable pushes to both branches; retain PR and manual triggers. Update README. |
+
+Validation: actionlint 1.7.12 and `git diff --check` pass. Explicit SDK package IDs
+match the installed packages used by the successful local builds above. Gradle worker
+count is capped at two with in-process Kotlin compilation for predictable CI memory
+usage. GitHub execution and artifact verification are pending the PR run.

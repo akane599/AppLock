@@ -178,7 +178,7 @@ before distributing a production build. See [the repository audit](AUDIT_REPORT.
 
 ### GitHub Actions APK builds
 
-The `Build APK` workflow builds debug and release APKs on pushes to `main` and
+The `Build APK` workflow builds debug and release APKs on pushes to `master` or `main` and
 on pull requests. To build manually, open **Actions → Build APK → Run workflow**,
 choose the branch, and run it. The selected branch must contain the workflow file.
 Download `app-debug` and `app-release` from the completed run's **Artifacts** section.
