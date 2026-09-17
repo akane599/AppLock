@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -28,7 +29,19 @@ fun AuthenticationGate(
     showCloseButton: Boolean = true,
     showBiometricOnly: Boolean = true
 ): Boolean {
-    val repository = LocalContext.current.appLockRepository()
+    val context = LocalContext.current
+    val repository = context.appLockRepository()
+    val biometricAvailable = BiometricManager.from(context).canAuthenticate(
+        BiometricManager.Authenticators.BIOMETRIC_WEAK
+    ) == BiometricManager.BIOMETRIC_SUCCESS
+    val biometricOnly = repository.isBiometricOnly()
+    LaunchedEffect(repository, biometricOnly, biometricAvailable) {
+        // Enrollment can be removed outside AppLock. Keeping biometric-only enabled in
+        // that state would leave every protected entry point without any usable input.
+        if (BiometricOnlyPolicy.shouldRestoreCredentialInput(biometricOnly, biometricAvailable)) {
+            repository.setBiometricOnly(false)
+        }
+    }
     var remaining by remember { mutableLongStateOf(repository.cooldownRemainingMillis()) }
     LaunchedEffect(repository) {
         while (true) {
@@ -36,7 +49,9 @@ fun AuthenticationGate(
             delay(250)
         }
     }
-    if (remaining <= 0L && (!showBiometricOnly || !repository.isBiometricOnly())) return false
+    if (remaining <= 0L &&
+        (!showBiometricOnly || !biometricOnly || !biometricAvailable)
+    ) return false
     Surface(modifier = modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().padding(24.dp),
@@ -64,6 +79,12 @@ fun AuthenticationGate(
     return true
 }
 
+/** Prevents a persisted biometric-only preference from making authentication unrecoverable. */
+internal object BiometricOnlyPolicy {
+    fun shouldRestoreCredentialInput(configured: Boolean, biometricAvailable: Boolean): Boolean =
+        configured && !biometricAvailable
+}
+
 /** Keeps one prompt per composition and cancels it when its owning screen leaves. */
 @Composable
 fun rememberBiometricAuthentication(
@@ -71,6 +92,7 @@ fun rememberBiometricAuthentication(
     onSuccess: () -> Unit
 ): () -> Unit {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val activity = LocalActivity.current as? FragmentActivity
     val repository = context.appLockRepository()
     val success by rememberUpdatedState(onSuccess)
@@ -130,8 +152,8 @@ fun rememberBiometricAuthentication(
                 showing = true
                 try {
                     prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
-                        .setTitle(context.getString(R.string.biometric_authentication_cd))
-                        .setNegativeButtonText(context.getString(R.string.cancel_button))
+                        .setTitle(resources.getString(R.string.biometric_authentication_cd))
+                        .setNegativeButtonText(resources.getString(R.string.cancel_button))
                         .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
                         .build())
                 } catch (_: RuntimeException) {

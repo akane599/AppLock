@@ -187,3 +187,82 @@ production-signing requirement are listed under limits. The user subsequently au
 all-branch/manual GitHub workflow now explicitly assembles both APK variants and fails
 on missing artifacts. Git history records the commit; no app release was published.
 `AGENTS.md` remains unchanged.
+
+## Third pass — biometric availability recovery
+
+This pass started at `c15ae98` with a clean tree and reviewed the new biometric-only
+and attempt-cooldown change against the previously completed repository-wide coverage.
+The existing architecture, manifests, Gradle/CI configuration, services, libraries,
+resources, scripts, metadata, documentation, and prior A01–A18 resolutions were
+rechecked for drift. The initial validation command was blocked because this container
+had neither an Android SDK path nor an installed SDK; a task-local SDK was then installed.
+
+### Coverage checkpoint
+
+- [x] Repository instructions, documentation, tracked-file inventory, history and clean baseline
+- [x] New authentication navigation, biometric prompt lifecycle, credential screens,
+      persisted cooldown state, settings, admin-disable flow and regression tests
+- [x] Recheck of unchanged app services/data/UI, library modules, hidden API boundary,
+      manifests/resources, Gradle/CI, tools, metadata and documentation against prior coverage
+- [x] JVM tests, lint, debug APK and release APK final validation
+- [ ] Device-only biometric enrollment/removal transition (blocked: no emulator/device)
+
+### Confirmed finding
+
+| ID | Severity | Evidence and affected files | Status and resolution |
+| --- | --- | --- | --- |
+| A19 | High | `AuthenticationGate.kt`: a persisted biometric-only setting always hid PIN/password/pattern input, while an unavailable or removed biometric enrollment made the only prompt impossible to start. Every protected entry point using the gate could become unrecoverable. | Fixed: evaluate current `BiometricManager` availability, immediately restore credential input when unavailable, and clear the stale biometric-only preference. Pure policy regressions cover unavailable, available and disabled cases. |
+
+### Validation log
+
+- Baseline `./gradlew :app:testDebugUnitTest :appintro:testDebugUnitTest lintDebug
+  --max-workers=2`: blocked before task execution because no Android SDK was configured.
+- `ANDROID_HOME=/tmp/android-sdk ./gradlew :app:testDebugUnitTest
+  :appintro:testDebugUnitTest lintDebug :app:assembleDebug :app:assembleRelease
+  --max-workers=2`: passed after installing task-local platform 37.0/build-tools
+  36.0.0. All 41 app and 1 onboarding JVM tests passed; lint had no errors
+  (existing warnings remain); both APK variants assembled successfully.
+- `git diff --check`: passed.
+- Debug APK SHA-256: `3fc97c68bd734b2d006ad406248aabfd0eca10192a166deed1c77e73dc1efddf`.
+  Release APK SHA-256: `ea1415795b9abbfdbf6a19332e1025823e9931c8ceee5310fb66f6833cbf0779`.
+
+### Remaining queue, limitations and opportunities
+
+No additional confirmed actionable defect is queued. A19's platform transition could
+not be exercised without biometric hardware or an emulator; its decision policy is JVM
+tested and the Android call path is compile/lint checked. The earlier device/API/signing,
+translation, dependency-audit, stress-testing and hidden-API limitations remain. No
+independent enhancement was implemented. Opportunities remain: versioned credential KDF
+migration, translation completion, app-list/cache profiling, wider API/device coverage,
+and production signing. Concrete next action for a maintainer is to remove all enrolled
+biometrics on a disposable device while biometric-only mode is enabled and verify that
+the configured app credential appears.
+
+## APK publication follow-up
+
+On 2026-09-17 both APK variants were rebuilt from commit `87bbe20` and copied from the
+ignored Gradle output tree into tracked repository paths so they remain downloadable:
+
+| Variant | Tracked path | SHA-256 |
+| --- | --- | --- |
+| Debug | `app/debug/app-debug.apk` | `62316f1021247ec1851fec52a7c2ba695d67b27f0540d8ab9ed1620f7034185d` |
+| Release | `app/release/app-release.apk` | `907a03d6475eb451e570b547d816ebba3b0eba2f9ece4c24167de2572a48518a` |
+
+`ANDROID_HOME=/tmp/android-sdk ./gradlew :app:assembleDebug :app:assembleRelease
+--max-workers=2` passed. The release APK retains the existing debug-key signing
+configuration and must not be represented as production-signed. Repository-relative
+download links were added to the README. The checkout initially had no configured remote
+or local `main` branch. Its recorded fetch source identified
+`https://github.com/akane599/AppLock`, which was added as `origin`; `git push origin
+HEAD:main` was attempted but GitHub authentication is unavailable in this environment.
+The prepared commit must therefore be pushed by an authenticated environment.
+
+## Build workflow follow-up
+
+The downloadable APK delivery mechanism was moved to the existing GitHub Actions
+pipeline rather than retaining generated binaries in Git. The workflow is named
+**Build APK**, runs for `main`, pull requests, and manual dispatch, and uploads separate
+`app-debug` and `app-release` artifacts for 14 days. It retains the test/lint gate and
+fails when either expected artifact is absent. Concurrency cancellation avoids wasting
+CI time on superseded revisions of the same ref. The previously checked-in APKs were
+removed; the build output and `app/release/` remain ignored.
